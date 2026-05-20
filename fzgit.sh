@@ -281,15 +281,33 @@ _c_jump() {
 }
 
 # ══════════════════════════════════════════
-#  🌿  分支管理（b）✅ 重构：支持交互选择
+#  🌿  分支管理（b）- 已集成 b all
 # ══════════════════════════════════════════
 _branch_mgr() {
     _check_git_repo || return 1
 
+    # 🌟 新增：b all 终极同步打捞功能
+    if [ "$1" = "all" ]; then
+        echo -e "\033[34m📥 正在打捞所有远程分支实体...\033[0m"
+        git fetch --all --prune &>/dev/null
+        
+        local n=0
+        while IFS= read -r r_br; do
+            local l_br="${r_br#origin/}"
+            if ! git rev-parse --verify "$l_br" >/dev/null 2>&1; then
+                git branch --track "$l_br" "$r_br" &>/dev/null
+                echo -e "  \033[32m✔ 已同步镜像:\033[0m $l_br"
+                n=$((n + 1))
+            fi
+        done < <(git branch -r | grep -v '\->' | grep 'origin/')
+        echo -e "\n\033[32m✨ 镜像完成！本地新增 \033[1m${n}\033[0m\033[32m 个分支。\033[0m"
+        echo -e "💡 接下来用 \033[36mb <名字>\033[0m 即可瞬间切换代码工作区！"
+        return 0
+    fi
+
     # 无参数：列出分支 + 选编号切换
     if [ -z "$1" ]; then
         echo -e "\033[1;36m🌿 分支列表:\033[0m"
-        # 获取本地分支列表
         local branches=()
         while IFS= read -r line; do
             branches+=("$line")
@@ -355,6 +373,7 @@ _branch_mgr() {
         echo -e "\033[32m✨ 已进入分支: $1\033[0m"
     fi
 }
+
 
 # ══════════════════════════════════════════
 #  🤖  AI 生成 commit message（内部函数）
@@ -930,6 +949,7 @@ alias h='echo -e "
   \033[36mpullall\033[0m  批量同步所有项目
 
 \033[1;33m── 🌿 分支操作 ──────────────────────────\033[0m
+  \033[36mb all\033[0m     打捞全部远程分支并在本地镜像
   \033[36mb\033[0m         列出分支 → 选编号切换
   \033[36mb <名字>\033[0m  直接切换/创建分支
   \033[36mb -l\033[0m      显示所有分支（含远程）
@@ -970,6 +990,7 @@ alias h='echo -e "
 # --- END ---
 INNER_EOF
 
+INNER_EOF
 # ============================================================
 # 生效
 # ============================================================
