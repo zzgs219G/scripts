@@ -418,8 +418,15 @@ _p_push() {
     # ✅ 修复：提前检查是否有变更
     local change_count=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
     if [ "$change_count" -eq 0 ]; then
+    local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null)
+
+      if [ "$ahead" -gt 0 ]; then
+        echo -e "\033[33m📤 检测到未推送的提交，正在推送...\033[0m"
+        git push origin "$(git branch --show-current)"
+      else
         echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
-        return 0
+      fi
+      return 0
     fi
 
     git add .
