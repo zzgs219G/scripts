@@ -292,15 +292,22 @@ _branch_mgr() {
         git fetch --all --prune &>/dev/null
         
         local n=0
+        # ✅ 修复核心：用 awk 干净利落地剔除空格和 HEAD 缓存指针
         while IFS= read -r r_br; do
+            [ -z "$r_br" ] && continue
+            
+            # 干净提取纯本地分支名（例如 dev）
             local l_br="${r_br#origin/}"
+            
+            # 排除当前已经身处的分支，防止重复追踪报错
             if ! git rev-parse --verify "$l_br" >/dev/null 2>&1; then
-                git branch --track "$l_br" "$r_br" &>/dev/null
+                git branch --track "$l_br" "origin/$l_br" &>/dev/null
                 echo -e "  \033[32m✔ 已同步镜像:\033[0m $l_br"
                 n=$((n + 1))
             fi
-        done < <(git branch -r | grep -v '\->' | grep 'origin/')
-        echo -e "\n\033[32m✨ 镜像完成！本地新增 \033[1m${n}\033[0m\033[32m 个分支。\033[0m"
+        done < <(git branch -r | awk '{print $1}' | grep 'origin/' | grep -v '\->')
+        
+        echo -e "\n\033[32m✨ 镜像完成！本地真正新增 \033[1m${n}\033[0m\033[32m 个分支。\033[0m"
         echo -e "💡 接下来用 \033[36mb <名字>\033[0m 即可瞬间切换代码工作区！"
         return 0
     fi
