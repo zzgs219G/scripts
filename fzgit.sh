@@ -259,26 +259,80 @@ _remote_mgr() {
 # ══════════════════════════════════════════
 #  📂  瞬移引擎（c）
 # ══════════════════════════════════════════
+# ══════════════════════════════════════════
+#  📂  瞬移引擎（c）- 见单直点交互版
+# ══════════════════════════════════════════
 _c_jump() {
-    cd "${FZ_BASE}" || return
-    if [ -z "$1" ]; then
+    if [ ! -d "${FZ_BASE}" ]; then
+        echo -e "\033[31m❌ 工作台路径不存在: ${FZ_BASE}\033[0m"
+        return 1
+    fi
+
+    # 1. 干净获取并排序项目列表
+    local dirs=()
+    while IFS= read -r line; do
+        [ -n "$line" ] && dirs+=("$line")
+    done < <(cd "${FZ_BASE}" && ls -d */ 2>/dev/null | sed 's/\///g' | sort)
+
+    if [ ${#dirs[@]} -eq 0 ]; then
+        echo -e "\033[90m(工作台空空如也，快用 cl 克隆一个吧)\033[0m"
+        return 0
+    fi
+
+    local input="$1"
+
+    # 2. 如果只敲了 c，先列出清单，然后原地“摆摊”等待你输入
+    if [ -z "$input" ]; then
         echo -e "\033[1;36m📂 工作台项目列表:\033[0m"
-        ls -d */ 2>/dev/null | sed 's/\///g' | \
-            awk '{print "  \033[33m"NR"\033[0m. "$0}'
-        echo -e "\n  \033[90m用法: c <编号> 进入项目\033[0m"
-    else
-        local target=$(ls -d */ 2>/dev/null | sed 's/\///g' | sed -n "${1}p")
-        if [ -n "$target" ]; then
-            cd "$target"
-            echo -e "🚀 已进入: \033[32m${target}\033[0m"
-            # 显示分支信息
-            git branch --show-current 2>/dev/null | \
-                xargs -I{} echo -e "🌿 当前分支: \033[33m{}\033[0m"
+        local i=1
+        for d in "${dirs[@]}"; do
+            echo -e "  \033[33m$i\033[0m. $d"
+            i=$((i+1))
+        done
+        
+        # 🌟 核心魔改：原地卡住，直接等待你输入编号或名字
+        echo -e ""
+        read -p "🚀 输入编号或项目名直达 (q退出): " input
+        [ -z "$input" ] || [ "$input" = "q" ] && return 0
+    fi
+
+    local target=""
+
+    # 3. 解析输入（不管是盲操传参进来的，还是原地敲的）
+    if [[ "$input" =~ ^[0-9]+$ ]]; then
+        # 纯数字，按编号走
+        local idx=$(( input - 1 ))
+        if [ $idx -ge 0 ] && [ $idx -lt ${#dirs[@]} ]; then
+            target="${dirs[$idx]}"
         else
-            echo -e "\033[31m❌ 编号 $1 不存在！\033[0m"
+            echo -e "\033[31m❌ 编号 $input 超出范围！\033[0m"
+            return 1
         fi
+    else
+        # 文本，开启模糊匹配
+        for d in "${dirs[@]}"; do
+            if [[ "${d,,}" == *"${input,,}"* ]]; then
+                target="$d"
+                break # 抓到第一个匹配的就走
+            fi
+        done
+    fi
+
+    # 4. 执行瞬移
+    if [ -n "$target" ]; then
+        cd "${FZ_BASE}/$target" || return 1
+        echo -e "🚀 瞬移成功: \033[1;32m${target}\033[0m"
+        
+        if git rev-parse --is-inside-work-tree &>/dev/null; then
+            local cur_br=$(git branch --show-current)
+            echo -e "  🌿 当前分支: \033[33m${cur_br}\033[0m"
+        fi
+    else
+        echo -e "\033[31m❌ 未找到匹配 \"$input\" 的项目！\033[0m"
+        return 1
     fi
 }
+
 
 # ══════════════════════════════════════════
 #  🌿  分支管理（b）- 已集成 b all
@@ -335,9 +389,14 @@ _branch_mgr() {
         echo -e "  \033[33mq\033[0m. 取消\n"
         read -p "选择编号 (回车默认进 dev): " choice
 
-        if [ -z "$choice" ]; then
-            git checkout -b dev 2>/dev/null || git checkout dev
+                if [ -z "$choice" ]; then
+            # 先尝试切换，如果是新项目本地没 dev，就基于远程 origin/dev 创建并追踪
+            git checkout dev 2>/dev/null || git checkout -b dev origin/dev 2>/dev/null || git checkout -b dev
+            
+            # 🌟 核心兜底：如果是已有孤儿分支，顺手在后台帮它把追踪关系绑上
+            git branch --set-upstream-to=origin/dev dev &>/dev/null
             echo -e "\033[32m✨ 已进入 dev 实验室\033[0m"
+
         elif [ "$choice" = "q" ]; then
             return 0
         elif [ "$choice" = "$i" ]; then
@@ -949,11 +1008,12 @@ alias h='echo -e "
   \033[36mtrust\033[0m    信任当前目录（safe.directory）
   \033[36maikey\033[0m    配置 AI commit key（Anthropic）
 
-\033[1;33m── 📂 项目导航 ──────────────────────────\033[0m
-  \033[36mc\033[0m        列出所有项目
-  \033[36mc <编号>\033[0m  秒进项目
-  \033[36mcl <url>\033[0m  克隆（支持 用户/仓库 短格式）
-  \033[36mpullall\033[0m  批量同步所有项目
+\033[1;33m── 📂 项目导航 ───────────────\033[0m
+  \033[36mc\033[0m        见单直点：看列表，直接输入编号/名字直达
+  \033[36mc <名字>\033[0m  盲操瞬移：不看列表，直接用名字关键字秒进
+  \033[36mcl <url>\033[0m  克隆项目（支持 用户名/仓库名 短格式）
+  \033[36mpullall\033[0m  大容量同步：一键拉取工作台所有项目的最新代码
+
 
 \033[1;33m── 🌿 分支操作 ──────────────────────────\033[0m
   \033[36mb all\033[0m     打捞全部远程分支并在本地镜像
