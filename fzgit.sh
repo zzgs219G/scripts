@@ -22,10 +22,18 @@ cat << 'INNER_EOF' >> ~/.bashrc
 # --- AI_GIT_WORKFLOW ---
 
 # ══════════════════════════════════════════
-#  📁  基础配置
+#  📁  基础配置（动态捕获，严防脚本截断Bug）
 # ══════════════════════════════════════════
-export FZ_BASE="/storage/emulated/0/常用/工作台😡/克隆仓库"
+# 优先去 sdcard 下寻找真正的“克隆仓库”目录，找不到则降级回原路径
+if [ -d "/storage/emulated/0/常用" ]; then
+    _FOUND_PATH=$(find /storage/emulated/0/常用/ -maxdepth 2 -type d -name "*克隆仓库*" 2>/dev/null | head -n 1)
+    export FZ_BASE="${_FOUND_PATH:-/storage/emulated/0/常用/工作台😡/克隆仓库}"
+else
+    export FZ_BASE="/storage/emulated/0/常用/工作台😡/克隆仓库"
+fi
 mkdir -p "${FZ_BASE}"
+unset _FOUND_PATH
+
 
 # AI commit message 功能开关（填入 key 后自动开启）
 # 获取方式：https://console.anthropic.com/
