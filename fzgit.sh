@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════╗
 # ║          焚诀·究极进化版  Git Workflow System               ║
-# ║          修复版 + AI自动commit + 完整功能                   ║
+# ║          v3.0 全面修复 + 新增指令 + AI自动commit            ║
 # ╚══════════════════════════════════════════════════════════════╝
 #
 # 安装方法：
@@ -22,25 +22,20 @@ cat << 'INNER_EOF' >> ~/.bashrc
 # --- AI_GIT_WORKFLOW ---
 
 # ══════════════════════════════════════════
-#  📁  基础配置（动态捕获，严防脚本截断Bug）
+#  📁  基础配置
 # ══════════════════════════════════════════
-# 优先去 sdcard 下寻找真正的“克隆仓库”目录，找不到则降级回原路径
 if [ -d "/storage/emulated/0/常用" ]; then
     _FOUND_PATH=$(find /storage/emulated/0/常用/ -maxdepth 2 -type d -name "*克隆仓库*" 2>/dev/null | head -n 1)
     export FZ_BASE="${_FOUND_PATH:-/storage/emulated/0/常用/工作台😡/克隆仓库}"
 else
-    export FZ_BASE="/storage/emulated/0/常用/工作台😡/克隆仓库"
+    export FZ_BASE="${HOME}/repos"
 fi
 mkdir -p "${FZ_BASE}"
 unset _FOUND_PATH
 
-
 # AI commit message 功能开关（填入 key 后自动开启）
 # 获取方式：https://console.anthropic.com/
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
-
-# ✅ 修复：移除全局 safe.directory，改为手动信任
-# git config --global --add safe.directory '*'  ← 已移除
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -66,13 +61,29 @@ _git_auto_ignore() {
     fi
 }
 
+# JSON 转义（兼容无 python3 环境）
+# 修复：原版依赖 python3，Termux 上可能不存在
+_json_escape() {
+    local s="$1"
+    # 优先用 python3，没有则用 sed 手动转义
+    if command -v python3 &>/dev/null; then
+        printf '%s' "$s" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null
+    else
+        # 手动转义：反斜杠、双引号、换行、制表符
+        s="${s//\\/\\\\}"
+        s="${s//\"/\\\"}"
+        s="${s//$'\n'/\\n}"
+        s="${s//$'\t'/\\t}"
+        printf '"%s"' "$s"
+    fi
+}
+
 # ══════════════════════════════════════════
 #  🔧  环境配置（setup）
 # ══════════════════════════════════════════
 _setup_env() {
     echo -e "\n\033[1;35m🔧 Git 环境初始化向导\033[0m\n"
 
-    # 检查 git
     if ! command -v git &>/dev/null; then
         echo -e "\033[31m❌ Git 未安装！\033[0m"
         echo -e "Termux:        \033[33mpkg install git\033[0m"
@@ -81,7 +92,6 @@ _setup_env() {
     fi
     echo -e "\033[32m✅ Git: $(git --version)\033[0m"
 
-    # 检查 gh
     if command -v gh &>/dev/null; then
         echo -e "\033[32m✅ GitHub CLI: $(gh --version | head -1)\033[0m"
     else
@@ -90,7 +100,6 @@ _setup_env() {
         echo -e "Ubuntu/Debian: \033[33msudo apt install gh\033[0m"
     fi
 
-    # 检查 curl（AI commit 需要）
     if command -v curl &>/dev/null; then
         echo -e "\033[32m✅ curl 已安装\033[0m"
     else
@@ -100,7 +109,6 @@ _setup_env() {
 
     echo ""
 
-    # 配置用户名
     local cur_name=$(git config --global user.name)
     if [ -z "$cur_name" ]; then
         read -p "📛 输入你的 Git 用户名: " git_name
@@ -109,7 +117,6 @@ _setup_env() {
         echo -e "👤 用户名: \033[33m$cur_name\033[0m"
     fi
 
-    # 配置邮箱
     local cur_email=$(git config --global user.email)
     if [ -z "$cur_email" ]; then
         read -p "📧 输入你的 Git 邮箱: " git_email
@@ -118,7 +125,6 @@ _setup_env() {
         echo -e "📧 邮箱: \033[33m$cur_email\033[0m"
     fi
 
-    # 全局配置优化
     git config --global core.editor        "nano"
     git config --global pull.rebase        false
     git config --global core.bigFileThreshold "50m"
@@ -129,13 +135,12 @@ _setup_env() {
 
     echo -e "\n\033[32m✨ 环境配置完成！\033[0m"
     echo -e "  下一步: \033[36mlogin\033[0m 登录 GitHub"
-    echo -e "  AI commit: 编辑 ~/.bashrc 填入 \033[36mFZ_AI_KEY\033[0m\n"
+    echo -e "  AI commit: 执行 \033[36maikey\033[0m 配置\n"
 }
 
 # ══════════════════════════════════════════
 #  🔑  信任当前目录（trust）
 # ══════════════════════════════════════════
-# ✅ 修复：替代危险的 safe.directory '*'
 _trust_dir() {
     local target="${1:-$(pwd)}"
     git config --global --add safe.directory "$target"
@@ -207,7 +212,6 @@ _create_repo() {
         read -p "将当前目录推送到新仓库？(y/n): " push_current
     fi
 
-    # ✅ 修复：创建前先移除已有 origin 避免报错
     if [ "$push_current" = "y" ] || [ "$push_current" = "Y" ]; then
         git remote remove origin 2>/dev/null
     fi
@@ -267,16 +271,12 @@ _remote_mgr() {
 # ══════════════════════════════════════════
 #  📂  瞬移引擎（c）
 # ══════════════════════════════════════════
-# ══════════════════════════════════════════
-#  📂  瞬移引擎（c）- 见单直点交互版
-# ══════════════════════════════════════════
 _c_jump() {
     if [ ! -d "${FZ_BASE}" ]; then
         echo -e "\033[31m❌ 工作台路径不存在: ${FZ_BASE}\033[0m"
         return 1
     fi
 
-    # 1. 干净获取并排序项目列表
     local dirs=()
     while IFS= read -r line; do
         [ -n "$line" ] && dirs+=("$line")
@@ -289,7 +289,6 @@ _c_jump() {
 
     local input="$1"
 
-    # 2. 如果只敲了 c，先列出清单，然后原地“摆摊”等待你输入
     if [ -z "$input" ]; then
         echo -e "\033[1;36m📂 工作台项目列表:\033[0m"
         local i=1
@@ -297,18 +296,14 @@ _c_jump() {
             echo -e "  \033[33m$i\033[0m. $d"
             i=$((i+1))
         done
-        
-        # 🌟 核心魔改：原地卡住，直接等待你输入编号或名字
-        echo -e ""
+        echo ""
         read -p "🚀 输入编号或项目名直达 (q退出): " input
         [ -z "$input" ] || [ "$input" = "q" ] && return 0
     fi
 
     local target=""
 
-    # 3. 解析输入（不管是盲操传参进来的，还是原地敲的）
     if [[ "$input" =~ ^[0-9]+$ ]]; then
-        # 纯数字，按编号走
         local idx=$(( input - 1 ))
         if [ $idx -ge 0 ] && [ $idx -lt ${#dirs[@]} ]; then
             target="${dirs[$idx]}"
@@ -317,20 +312,17 @@ _c_jump() {
             return 1
         fi
     else
-        # 文本，开启模糊匹配
         for d in "${dirs[@]}"; do
             if [[ "${d,,}" == *"${input,,}"* ]]; then
                 target="$d"
-                break # 抓到第一个匹配的就走
+                break
             fi
         done
     fi
 
-    # 4. 执行瞬移
     if [ -n "$target" ]; then
         cd "${FZ_BASE}/$target" || return 1
         echo -e "🚀 瞬移成功: \033[1;32m${target}\033[0m"
-        
         if git rev-parse --is-inside-work-tree &>/dev/null; then
             local cur_br=$(git branch --show-current)
             echo -e "  🌿 当前分支: \033[33m${cur_br}\033[0m"
@@ -341,40 +333,76 @@ _c_jump() {
     fi
 }
 
+# ══════════════════════════════════════════
+#  📊  工作台总览（ls）新增
+# ══════════════════════════════════════════
+_ls_projects() {
+    if [ ! -d "${FZ_BASE}" ]; then
+        echo -e "\033[31m❌ 工作台路径不存在: ${FZ_BASE}\033[0m"
+        return 1
+    fi
+
+    echo -e "\n\033[1;36m📊 工作台项目总览\033[0m\n"
+    printf "  \033[90m%-28s %-14s %-8s %s\033[0m\n" "项目名" "分支" "变更" "最近提交"
+    echo -e "  \033[90m──────────────────────────────────────────────────────────\033[0m"
+
+    local count=0
+    for dir in "${FZ_BASE}"/*/; do
+        [ -d "$dir" ] || continue
+        local name=$(basename "$dir")
+        count=$((count+1))
+
+        if [ -d "$dir/.git" ]; then
+            local branch commit changes
+            branch=$(cd "$dir" && git branch --show-current 2>/dev/null || echo "?")
+            commit=$(cd "$dir" && git log -1 --format="%s" 2>/dev/null | cut -c1-30 || echo "-")
+            changes=$(cd "$dir" && git status -s 2>/dev/null | wc -l | tr -d ' ')
+
+            local branch_color="\033[32m"
+            [ "$branch" = "main" ] || [ "$branch" = "master" ] && branch_color="\033[33m"
+
+            local changes_str="\033[90m-\033[0m"
+            [ "$changes" -gt 0 ] && changes_str="\033[31m${changes}个\033[0m"
+
+            printf "  %-28s ${branch_color}%-14s\033[0m %-8b \033[90m%s\033[0m\n" \
+                "$name" "$branch" "$changes_str" "$commit"
+        else
+            printf "  %-28s \033[90m%-14s\033[0m\n" "$name" "(非Git仓库)"
+        fi
+    done
+
+    echo -e "\n\033[90m  共 $count 个项目 | FZ_BASE: ${FZ_BASE}\033[0m\n"
+}
 
 # ══════════════════════════════════════════
-#  🌿  分支管理（b）- 已集成 b all
+#  🌿  分支管理（b）
 # ══════════════════════════════════════════
 _branch_mgr() {
     _check_git_repo || return 1
 
-    # 🌟 新增：b all 终极同步打捞功能
+    # b all：打捞所有远程分支
+    # 修复：原版 grep 管道在某些环境下对带空格行处理不稳定，改用更健壮的写法
     if [ "$1" = "all" ]; then
         echo -e "\033[34m📥 正在打捞所有远程分支实体...\033[0m"
-        git fetch --all --prune &>/dev/null
-        
+        git fetch --all --prune 2>/dev/null
+
         local n=0
-        # ✅ 修复核心：用 awk 干净利落地剔除空格和 HEAD 缓存指针
         while IFS= read -r r_br; do
             [ -z "$r_br" ] && continue
-            
-            # 干净提取纯本地分支名（例如 dev）
             local l_br="${r_br#origin/}"
-            
-            # 排除当前已经身处的分支，防止重复追踪报错
             if ! git rev-parse --verify "$l_br" >/dev/null 2>&1; then
-                git branch --track "$l_br" "origin/$l_br" &>/dev/null
-                echo -e "  \033[32m✔ 已同步镜像:\033[0m $l_br"
-                n=$((n + 1))
+                git branch --track "$l_br" "origin/$l_br" 2>/dev/null && \
+                    echo -e "  \033[32m✔ 已同步镜像:\033[0m $l_br" && \
+                    n=$((n + 1))
             fi
-        done < <(git branch -r | awk '{print $1}' | grep 'origin/' | grep -v '\->')
-        
-        echo -e "\n\033[32m✨ 镜像完成！本地真正新增 \033[1m${n}\033[0m\033[32m 个分支。\033[0m"
-        echo -e "💡 接下来用 \033[36mb <名字>\033[0m 即可瞬间切换代码工作区！"
+        done < <(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | grep '^origin/' | grep -v 'origin/HEAD')
+
+        echo -e "\n\033[32m✨ 镜像完成！本地新增 \033[1m${n}\033[0m\033[32m 个分支\033[0m"
+        echo -e "💡 用 \033[36mb <名字>\033[0m 切换分支"
         return 0
     fi
 
-    # 无参数：列出分支 + 选编号切换
+    # 无参数：列出 + 选编号切换
     if [ -z "$1" ]; then
         echo -e "\033[1;36m🌿 分支列表:\033[0m"
         local branches=()
@@ -397,14 +425,10 @@ _branch_mgr() {
         echo -e "  \033[33mq\033[0m. 取消\n"
         read -p "选择编号 (回车默认进 dev): " choice
 
-                if [ -z "$choice" ]; then
-            # 先尝试切换，如果是新项目本地没 dev，就基于远程 origin/dev 创建并追踪
+        if [ -z "$choice" ]; then
             git checkout dev 2>/dev/null || git checkout -b dev origin/dev 2>/dev/null || git checkout -b dev
-            
-            # 🌟 核心兜底：如果是已有孤儿分支，顺手在后台帮它把追踪关系绑上
             git branch --set-upstream-to=origin/dev dev &>/dev/null
             echo -e "\033[32m✨ 已进入 dev 实验室\033[0m"
-
         elif [ "$choice" = "q" ]; then
             return 0
         elif [ "$choice" = "$i" ]; then
@@ -442,18 +466,114 @@ _branch_mgr() {
             echo -e "\033[32m🗑️ 已删除远程分支: $b_del\033[0m"
 
     else
-        # 直接切换/创建指定分支
         git checkout -b "$1" 2>/dev/null || git checkout "$1"
         echo -e "\033[32m✨ 已进入分支: $1\033[0m"
     fi
 }
 
+# ══════════════════════════════════════════
+#  ✂️  重命名分支（rn）新增
+# ══════════════════════════════════════════
+_rename_branch() {
+    _check_git_repo || return 1
+    local old_br=$(git branch --show-current)
+    local new_br="$1"
+
+    if [ -z "$new_br" ]; then
+        echo -e "\033[36m当前分支: \033[1m$old_br\033[0m"
+        read -p "新分支名: " new_br
+    fi
+    [ -z "$new_br" ] && return 1
+
+    # 本地重命名
+    git branch -m "$old_br" "$new_br"
+
+    # 同步远程
+    if git remote get-url origin &>/dev/null; then
+        read -p "同步删除远程旧分支并推送新分支？(y/n): " sync_remote
+        if [[ "$sync_remote" == "y" || "$sync_remote" == "Y" ]]; then
+            git push origin --delete "$old_br" 2>/dev/null
+            git push -u origin "$new_br"
+            echo -e "\033[32m✅ 远程分支已同步: $old_br → $new_br\033[0m"
+        fi
+    fi
+    echo -e "\033[32m✨ 分支重命名: \033[1m$old_br → $new_br\033[0m"
+}
 
 # ══════════════════════════════════════════
-#  🤖  AI 生成 commit message（内部函数）
+#  🧹  清理已合并分支（clean）新增
 # ══════════════════════════════════════════
+_clean_branches() {
+    _check_git_repo || return 1
+    echo -e "\033[34m🔍 检查已合并到 main/master 的分支...\033[0m"
+
+    local base_br="main"
+    git rev-parse --verify main >/dev/null 2>&1 || base_br="master"
+
+    local merged=()
+    while IFS= read -r br; do
+        [ -z "$br" ] && continue
+        [[ "$br" == "main" || "$br" == "master" || "$br" == "dev" ]] && continue
+        merged+=("$br")
+    done < <(git branch --merged "$base_br" 2>/dev/null | sed 's/[* ]*//' | grep -v "^$")
+
+    if [ ${#merged[@]} -eq 0 ]; then
+        echo -e "\033[32m✅ 没有可清理的已合并分支\033[0m"
+        return 0
+    fi
+
+    echo -e "\033[33m以下分支已合并到 $base_br，可以删除:\033[0m"
+    for br in "${merged[@]}"; do
+        echo -e "  \033[31m- $br\033[0m"
+    done
+
+    read -p "确认删除这 ${#merged[@]} 个分支？(y/n): " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        for br in "${merged[@]}"; do
+            git branch -d "$br" && echo -e "  \033[32m🗑️ 已删除: $br\033[0m"
+        done
+    else
+        echo -e "\033[90m已取消\033[0m"
+    fi
+}
+
+# ══════════════════════════════════════════
+#  🔄  安全同步（sync）新增
+# ══════════════════════════════════════════
+_sync_branch() {
+    _check_git_repo || return 1
+    local cur_br=$(git branch --show-current)
+
+    echo -e "\033[34m🔄 同步分支: \033[1m$cur_br\033[0m"
+
+    # 检查有无未提交变更
+    if [ -n "$(git status -s 2>/dev/null)" ]; then
+        echo -e "\033[33m⚠️ 存在未提交变更，先暂存...\033[0m"
+        git stash push -m "sync_auto_stash_$(date '+%m%d_%H%M')"
+        local stashed=1
+    fi
+
+    git fetch origin 2>/dev/null
+    git rebase "origin/$cur_br" 2>/dev/null || {
+        echo -e "\033[33m⚠️ rebase 遇到冲突，回退为 merge...\033[0m"
+        git rebase --abort 2>/dev/null
+        git merge "origin/$cur_br"
+    }
+
+    # 恢复暂存
+    if [ "${stashed}" = "1" ]; then
+        echo -e "\033[34m📦 恢复暂存的变更...\033[0m"
+        git stash pop
+    fi
+
+    echo -e "\033[32m✅ 同步完成\033[0m"
+}
+
+# ══════════════════════════════════════════
+#  🤖  AI 生成 commit message
+# ══════════════════════════════════════════
+# 修复：移除 python3 依赖，改用内置 _json_escape 函数
 _ai_commit_msg() {
-    # 没有 key 或没有 curl 则跳过
     [ -z "$FZ_AI_KEY" ] && return 1
     ! command -v curl &>/dev/null && return 1
 
@@ -475,18 +595,22 @@ ${diff_content}
 代码差异（部分）：
 ${diff_detail}"
 
-    local response=$(curl -s "https://api.anthropic.com/v1/messages" \
+    local escaped_prompt
+    escaped_prompt=$(_json_escape "$prompt")
+
+    local response
+    response=$(curl -s --max-time 15 "https://api.anthropic.com/v1/messages" \
         -H "x-api-key: ${FZ_AI_KEY}" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
         -d "{
             \"model\": \"claude-haiku-4-5-20251001\",
             \"max_tokens\": 100,
-            \"messages\": [{\"role\": \"user\", \"content\": $(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')}]
+            \"messages\": [{\"role\": \"user\", \"content\": ${escaped_prompt}}]
         }" 2>/dev/null)
 
-    # 提取 text 字段
-    local msg=$(echo "$response" | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//')
+    local msg
+    msg=$(echo "$response" | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//')
 
     if [ -n "$msg" ] && [ "$msg" != "null" ]; then
         echo "$msg"
@@ -496,41 +620,40 @@ ${diff_detail}"
 }
 
 # ══════════════════════════════════════════
-#  🚀  智能推送（p）✅ 修复多个bug + AI commit
+#  🚀  智能推送（p）
 # ══════════════════════════════════════════
+# 修复：change_count 统计逻辑，以及 ahead 判断的嵌套问题
 _p_push() {
     _check_git_repo || return 1
     _git_auto_ignore
 
     local b_name=$(git branch --show-current)
 
-    # 显示变更内容
     echo -e "\033[36m📋 变更文件:\033[0m"
     git status -s
 
-    # ✅ 修复：提前检查是否有变更
-    local change_count=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$change_count" -eq 0 ]; then
-    local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null)
+    local change_count
+    change_count=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
 
-      if [ "$ahead" -gt 0 ]; then
-        echo -e "\033[33m📤 检测到未推送的提交，正在推送...\033[0m"
-        git push origin "$(git branch --show-current)"
-      else
-        echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
-      fi
-      return 0
+    if [ "$change_count" -eq 0 ]; then
+        # 没有工作区变更，但可能有未推送的 commit
+        local ahead
+        ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
+        if [ "$ahead" -gt 0 ]; then
+            echo -e "\033[33m📤 检测到 $ahead 个未推送的提交，直接推送...\033[0m"
+            git push origin "$b_name"
+        else
+            echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
+        fi
+        return 0
     fi
 
     git add .
 
-    # 确定 commit message
     local msg=""
     if [ -n "$1" ]; then
-        # 用户手动输入
         msg="$1"
     elif [ -n "$FZ_AI_KEY" ] && command -v curl &>/dev/null; then
-        # 尝试 AI 生成
         msg=$(_ai_commit_msg)
         if [ -n "$msg" ]; then
             echo -e "\033[90m💡 AI建议: \033[0m\033[1m${msg}\033[0m"
@@ -539,55 +662,54 @@ _p_push() {
         fi
     fi
 
-    # 兜底：时间戳备注
     [ -z "$msg" ] && msg="⚡ update: $(date '+%m-%d %H:%M')"
 
     echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}\033[0m"
 
-    # ✅ 修复：commit 失败不中断流程
     git commit -m "${msg}" 2>/dev/null || {
-        echo -e "\033[33m⚠️ commit 无变化，尝试直接推送\033[0m"
+        echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
     }
 
-    git push origin "${b_name}"
+    # 自动处理首次推送（无上游分支）
+    if ! git push origin "${b_name}" 2>/dev/null; then
+        echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
+        git push -u origin "${b_name}"
+    fi
 
     if [ $? -eq 0 ]; then
         echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
     else
-        echo -e "\033[31m❌ 推送失败！可能需要先执行 'pull' 同步\033[0m"
-        echo -e "\033[90m如果是首次推送，尝试: git push -u origin ${b_name}\033[0m"
+        echo -e "\033[31m❌ 推送失败！可能需要先执行 'sync' 同步\033[0m"
     fi
 }
 
-
 # ══════════════════════════════════════════
-#  ✅  发布转正（ok）- 支持控制台免构建锁
+#  ✅  发布转正（ok）
 # ══════════════════════════════════════════
 _ok_merge() {
     _check_git_repo || return 1
     local src="${1:-dev}"
     local dst="${2:-main}"
-    local opt="${3}" # 捕获第三个参数
+    local opt="${3}"
 
-    # 检查源分支是否存在
     if ! git rev-parse --verify "$src" >/dev/null 2>&1; then
         echo -e "\033[31m❌ 分支 '$src' 不存在！\033[0m"
         return 1
     fi
 
-    # 确定是否注入免构建暗号
     local msg="🔀 merge: ${src} → ${dst}"
-    if [ "$opt" = "noci" ] || [ "$opt" = "no-ci" ]; then
+    # 修复：统一支持 noci / no-ci / [no ci] 三种写法
+    if [ "$opt" = "noci" ] || [ "$opt" = "no-ci" ] || [ "$opt" = "[no ci]" ]; then
         msg="🔀 merge: ${src} → ${dst} [no ci]"
-        echo -e "\033[33m🛡️ 已启动免构建锁，本次推送将阻止 Cloudflare 自动构建\033[0m"
+        echo -e "\033[33m🛡️ 已启用免构建锁（Cloudflare/CI 将跳过本次构建）\033[0m"
     fi
 
     echo -e "\033[33m⚠️ 准备将 \033[1m${src}\033[0m\033[33m → \033[1m${dst}\033[0m\033[33m 合并发布\033[0m"
     echo -e "\033[36m\n待合并的提交:\033[0m"
-    git log "${dst}..${src}" --oneline 2>/dev/null | head -10 | \
-        awk '{print "  " $0}'
+    git log "${dst}..${src}" --oneline 2>/dev/null | head -10 | awk '{print "  " $0}'
 
-    local count=$(git rev-list "${dst}..${src}" --count 2>/dev/null)
+    local count
+    count=$(git rev-list "${dst}..${src}" --count 2>/dev/null)
     echo -e "\n\033[90m共 $count 个提交待合并\033[0m"
     read -p "确认合并发布？(y/n): " confirm
 
@@ -600,8 +722,6 @@ _ok_merge() {
         if [ $? -eq 0 ]; then
             echo -e "\033[32m✅ 功德圆满！已发布至 ${dst}\033[0m"
             git checkout "$src"
-
-            # 询问是否同时打 tag
             read -p "顺手打版本标签？(如 v1.0.0，回车跳过): " tag_ver
             [ -n "$tag_ver" ] && _tag_mgr "$tag_ver" "release $tag_ver"
         else
@@ -612,7 +732,6 @@ _ok_merge() {
         echo -e "\033[31m⛔ 已取消\033[0m"
     fi
 }
-
 
 # ══════════════════════════════════════════
 #  💊  后悔药（no）
@@ -768,12 +887,22 @@ _tag_mgr() {
 }
 
 # ══════════════════════════════════════════
-#  ⚡  极速炼化引擎（f）✅ 修复 count 子shell bug
+#  ⚡  炼化引擎（f）
 # ══════════════════════════════════════════
+# 修复：
+# 1. TMP_FILE 改到 HOME 目录，避免 emoji 路径导致 cp/cat 炸裂
+# 2. OUT_FILE 先输出到 HOME，成功后再尝试复制到 FZ_BASE
+# 3. 所有路径变量全部加双引号
 _f_burn() {
     local MODULE="$1"
-    local OUT_FILE="${FZ_BASE}/ai_code_${MODULE:-all}_$(date '+%m%d_%H%M').txt"
-    local TMP_FILE=$(mktemp /tmp/fz_burn_XXXXXX.txt)
+    local TIMESTAMP
+    TIMESTAMP=$(date '+%m%d_%H%M')
+
+    # 修复核心：TMP 和 OUT 都先放 HOME，绝对安全
+    local TMP_FILE
+    TMP_FILE=$(mktemp "${HOME}/fz_burn_tmp_XXXXXX.txt")
+    local OUT_NAME="ai_code_${MODULE:-all}_${TIMESTAMP}.txt"
+    local OUT_FILE="${HOME}/${OUT_NAME}"
 
     echo -e "\033[33m⚡ 炼化启动...\033[0m"
     echo -e "\033[90m📁 项目: $(basename "$PWD") | 过滤模块: ${MODULE:-无}\033[0m"
@@ -786,16 +915,15 @@ _f_burn() {
         "$(date '+%Y-%m-%d %H:%M')" \
         "$(git branch --show-current 2>/dev/null || echo 'unknown')" > "$TMP_FILE"
 
-    # ✅ 修复：用进程替换 < <() 避免子shell导致count失效
     local count=0
     local skip_count=0
 
     while IFS= read -r file; do
         [ -f "$file" ] || continue
 
-        local size=$(wc -c < "$file" 2>/dev/null || echo 0)
+        local size
+        size=$(wc -c < "$file" 2>/dev/null || echo 0)
 
-        # 跳过超过 100KB 的文件
         if [ "$size" -gt 102400 ]; then
             printf "\n// [SKIP 过大: %s — %dKB]\n" "$file" "$((size/1024))" >> "$TMP_FILE"
             skip_count=$((skip_count + 1))
@@ -825,12 +953,19 @@ _f_burn() {
     cp "$TMP_FILE" "$OUT_FILE"
     rm -f "$TMP_FILE"
 
-    local out_kb=$(( $(wc -c < "$OUT_FILE" 2>/dev/null || echo 0) / 1024 ))
+    local out_kb
+    out_kb=$(( $(wc -c < "$OUT_FILE" 2>/dev/null || echo 0) / 1024 ))
+
     echo -e "\r\033[32m✨ 炼化完成！\033[0m"
     echo -e "  📄 已处理 : \033[33m${count}\033[0m 个文件"
     [ "$skip_count" -gt 0 ] && echo -e "  ⏭️  跳过   : \033[90m${skip_count} 个过大文件\033[0m"
-    echo -e "  📦 输出   : \033[33m${out_kb} KB\033[0m"
+    echo -e "  📦 大小   : \033[33m${out_kb} KB\033[0m"
     echo -e "  📍 路径   : \033[36m${OUT_FILE}\033[0m"
+
+    # 尝试额外复制到工作台目录（失败不影响主流程）
+    if [ -d "${FZ_BASE}" ] && cp "$OUT_FILE" "${FZ_BASE}/${OUT_NAME}" 2>/dev/null; then
+        echo -e "  📂 工作台 : \033[36m${FZ_BASE}/${OUT_NAME}\033[0m"
+    fi
 
     # 自动复制路径到剪贴板（Termux）
     if command -v termux-clipboard-set &>/dev/null; then
@@ -903,6 +1038,14 @@ _repo_info() {
     echo -e "  📁 追踪数 : \033[33m$(git ls-files 2>/dev/null | wc -l | tr -d ' ')\033[0m 个文件"
     echo -e "  ⏰ 最近   : $(git log -1 --format='%s (%cr)' 2>/dev/null || echo '无')"
     echo -e "  🏷️  标签   : $(git tag | wc -l | tr -d ' ') 个"
+
+    # 新增：显示本地领先/落后远程的提交数
+    local ahead behind
+    ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
+    behind=$(git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)
+    [ "$ahead" -gt 0 ] && echo -e "  📤 领先   : \033[33m${ahead}\033[0m 个提交（未推送）"
+    [ "$behind" -gt 0 ] && echo -e "  📥 落后   : \033[31m${behind}\033[0m 个提交（需拉取）"
+
     echo -e "  ─────────────────────────────────"
     echo -e "  \033[90m贡献者:\033[0m"
     git shortlog -sn 2>/dev/null | head -5 | awk '{print "    "$0}'
@@ -924,12 +1067,12 @@ _ai_setup() {
 
     read -p "输入你的 Anthropic API Key (sk-ant-...): " input_key
     if [ -n "$input_key" ]; then
-        # 写入 ~/.bashrc
         sed -i 's/export FZ_AI_KEY=".*"/export FZ_AI_KEY="'"$input_key"'"/' ~/.bashrc
         export FZ_AI_KEY="$input_key"
         echo -e "\033[32m✅ 已保存！下次 'p' 推送时将自动生成 commit message\033[0m\n"
     fi
 }
+
 # ══════════════════════════════════════════
 #  🌐  查看远程仓库文件（rls）
 # ══════════════════════════════════════════
@@ -945,14 +1088,14 @@ _rls_remote() {
     fi
 
     local repo="$1"
-
     echo -e "\033[1;36m🌐 仓库: $repo\033[0m\n"
 
-    gh api repos/$repo/contents \
+    gh api "repos/$repo/contents" \
         --jq '.[] | "📄 \(.name)\t\(.type)"' 2>/dev/null || {
         echo -e "\033[31m❌ 获取失败（仓库不存在或未登录）\033[0m"
     }
 }
+
 # ══════════════════════════════════════════
 #  🔤  别名注册
 # ══════════════════════════════════════════
@@ -963,7 +1106,11 @@ alias remote='_remote_mgr'
 alias trust='_trust_dir'
 alias aikey='_ai_setup'
 alias c='_c_jump'
+alias ls='_ls_projects'        # 新增：工作台总览
 alias b='_branch_mgr'
+alias rn='_rename_branch'      # 新增：重命名分支
+alias clean='_clean_branches'  # 新增：清理已合并分支
+alias sync='_sync_branch'      # 新增：安全同步（fetch+rebase）
 alias p='_p_push'
 alias ok='_ok_merge'
 alias no='_no_revert'
@@ -978,11 +1125,12 @@ alias tag='_tag_mgr'
 alias cl='_clone_repo'
 alias pullall='_pull_all'
 alias info='_repo_info'
+alias rls='_rls_remote'
 alias st='echo -e "📍 分支: \033[1;33m$(git branch --show-current 2>/dev/null || echo "非Git目录")\033[0m | 变更: \033[33m$(git status -s 2>/dev/null | wc -l | tr -d " ")\033[0m 个文件"'
 alias pull='echo -e "\033[34m📥 同步中...\033[0m" && git pull'
 alias undo='git restore . && echo -e "\033[33m↩️ 已撤销工作区所有未提交修改\033[0m"'
 alias unstage='git restore --staged . && echo -e "\033[33m↩️ 已取消所有暂存\033[0m"'
-alias rls='_rls_remote'
+
 # ══════════════════════════════════════════
 #  📖  帮助菜单（h）
 # ══════════════════════════════════════════
@@ -990,86 +1138,76 @@ alias h='echo -e "
 
 \033[1;36m
 ╔══════════════════════════════════════════╗
-║      焚诀·Git 工作流初始化引导          ║
+║      焚诀·Git 工作流  v3.0              ║
 ╚══════════════════════════════════════════╝
 \033[0m
 
-\033[33m⚠️ 首次使用请先安装依赖环境：\033[0m
+\033[33m⚠️ 首次使用请先安装依赖：\033[0m
 
   \033[36mpkg install git curl gh\033[0m
+\033[90m（Ubuntu/Debian: sudo apt install git curl gh）\033[0m
 
-\033[90m（如果你是 Ubuntu / Debian：
-  sudo apt install git curl gh）\033[0m
-
-\033[33m📌 安装完成后，建议执行：\033[0m
-
-  \033[36msetup\033[0m   初始化 Git 环境
-  \033[36mlogin\033[0m   登录 GitHub
-
-\033[32m✨ 然后就可以愉快使用：\033[0m
-
-  \033[36mc\033[0m  项目管理
-  \033[36mb\033[0m  分支切换
-  \033[36mp\033[0m  一键推送（支持 AI🔥）
+\033[33m📌 安装后执行：\033[0m  \033[36msetup\033[0m  →  \033[36mlogin\033[0m  →  \033[36maikey\033[0m（可选）
 
 \033[1;35m╔══════════════════════════════════════════╗
-║      焚诀·究极进化版  指令秘籍          ║
+║      指令秘籍                            ║
 ╚══════════════════════════════════════════╝\033[0m
-
-
 
 \033[1;33m── 🔧 初始化 ────────────────────────────\033[0m
   \033[36msetup\033[0m    检查环境 + 配置 Git 全局信息
   \033[36mlogin\033[0m    登录 GitHub（浏览器/Token）
-  \033[36mrepo\033[0m     创建远程仓库（可直接推送当前目录）
+  \033[36mrepo\033[0m     创建远程仓库
   \033[36mremote\033[0m   管理远程地址（增删改查）
   \033[36mtrust\033[0m    信任当前目录（safe.directory）
   \033[36maikey\033[0m    配置 AI commit key（Anthropic）
 
-\033[1;33m── 📂 项目导航 ───────────────\033[0m
-  \033[36mc\033[0m        看列表，编号/名字直达
-  \033[36mc <名字>\033[0m  盲操瞬移 直接用名字关键字秒进
-  \033[36mcl <url>\033[0m  克隆项目（支持 用户名/仓库名）
-  \033[36mpullall\033[0m  大容量同步：一键拉取所有项目代码
-
+\033[1;33m── 📂 项目导航 ──────────────────────────\033[0m
+  \033[36mls\033[0m        工作台所有项目状态总览     ✨新
+  \033[36mc\033[0m         列表选择/编号瞬移
+  \033[36mc <名字>\033[0m   关键字模糊直达
+  \033[36mcl <url>\033[0m   克隆（支持 用户名/仓库名）
+  \033[36mpullall\033[0m   一键拉取所有项目
 
 \033[1;33m── 🌿 分支操作 ──────────────────────────\033[0m
-  \033[36mb all\033[0m     打捞全部远程分支并在本地镜像
-  \033[36mb\033[0m         列出分支 → 选编号切换
-  \033[36mb <名字>\033[0m  直接切换/创建分支
-  \033[36mb -l\033[0m      显示所有分支（含远程）
-  \033[36mb -d <名>\033[0m  删除本地分支
-  \033[36mb -dr <名>\033[0m 删除远程分支
-  \033[36mmain\033[0m      回到 main/master
+  \033[36mb all\033[0m      打捞全部远程分支并本地镜像
+  \033[36mb\033[0m          列出分支 → 选编号切换
+  \033[36mb <名字>\033[0m   直接切换/创建分支
+  \033[36mb -l\033[0m       显示所有分支（含远程）
+  \033[36mb -d <名>\033[0m   删除本地分支
+  \033[36mb -dr <名>\033[0m  删除远程分支
+  \033[36mmain\033[0m       回到 main/master
+  \033[36mrn\033[0m         重命名当前分支（本地+远程）✨新
+  \033[36mclean\033[0m      清理已合并的本地分支       ✨新
 
 \033[1;33m── 🚀 推送 & 发布 ───────────────────────\033[0m
-  \033[36mp\033[0m         推送（有AI key则自动生成备注）
-  \033[36mp \"备注\"\033[0m  指定备注推送
-  \033[36mok\033[0m        合并 dev→main 发布（带确认+tag）
-  \033[36mok <源> <目>\033[0m 自定义合并 +noci不构建cf
-  \033[31mno\033[0m        撤回最后一次发布 ⚠️ 危险
-  \033[36mpull\033[0m      同步远程最新代码
+  \033[36mp\033[0m          推送（AI key 自动生成备注）
+  \033[36mp \"备注\"\033[0m   指定备注推送
+  \033[36msync\033[0m       安全同步远程（fetch+rebase） ✨新
+  \033[36mpull\033[0m       拉取最新代码
+  \033[36mok\033[0m         合并 dev→main 发布
+  \033[36mok dev main noci\033[0m  合并并跳过 CI 构建
+  \033[31mno\033[0m         撤回最后一次发布 ⚠️ 危险
 
 \033[1;33m── 📊 查看 & 对比 ───────────────────────\033[0m
-  \033[36mst\033[0m        当前分支 + 变更文件数
-  \033[36minfo\033[0m      仓库完整信息总览
+  \033[36mst\033[0m         当前分支 + 变更文件数
+  \033[36minfo\033[0m       仓库完整信息（含领先/落后）
   \033[36mrls 用户/仓库\033[0m 查看远程仓库文件列表
-  \033[36mlg\033[0m        提交历史图（默认15条）
-  \033[36mlg 30\033[0m     查看30条历史
-  \033[36md\033[0m         查看未暂存的变更
-  \033[36md s\033[0m       查看已暂存的变更
+  \033[36mlg\033[0m         提交历史图（默认15条）
+  \033[36mlg 30\033[0m      查看30条历史
+  \033[36md\033[0m          查看未暂存的变更
+  \033[36md s\033[0m        查看已暂存的变更
 
 \033[1;33m── 🧰 实用工具 ──────────────────────────\033[0m
-  \033[36msave\033[0m      暂存工作区（临时切任务）
-  \033[36mpop\033[0m       恢复暂存
-  \033[36mfix\033[0m       冲突解决引导
-  \033[36mtag\033[0m       查看所有标签
-  \033[36mtag v1.0\033[0m  发布版本标签
-  \033[36mf\033[0m         炼化全部源码（喂给AI）
-  \033[36mf <模块>\033[0m   只炼化指定模块
-  \033[36mundo\033[0m      撤销工作区所有修改 ⚠️
-  \033[36munstage\033[0m   取消所有暂存
-  \033[36mh\033[0m         显示此菜单
+  \033[36msave\033[0m       暂存工作区
+  \033[36mpop\033[0m        恢复暂存
+  \033[36mfix\033[0m        冲突解决引导
+  \033[36mtag\033[0m        查看所有标签
+  \033[36mtag v1.0\033[0m   发布版本标签
+  \033[36mf\033[0m          炼化全部源码（喂给AI）
+  \033[36mf <模块>\033[0m    只炼化指定模块
+  \033[36mundo\033[0m       撤销工作区所有修改 ⚠️
+  \033[36munstage\033[0m    取消所有暂存
+  \033[36mh\033[0m          显示此菜单
 "'
 
 # --- END ---
@@ -1081,7 +1219,7 @@ INNER_EOF
 # ============================================================
 source ~/.bashrc
 echo -e "\n\033[1;32m╔══════════════════════════════════╗"
-echo -e "║  焚诀·究极进化版 注入成功！     ║"
+echo -e "║  焚诀·v3.0 注入成功！           ║"
 echo -e "╚══════════════════════════════════╝\033[0m"
 echo -e "\n  执行 \033[36mh\033[0m 查看全部指令"
 echo -e "  执行 \033[36msetup\033[0m 初始化环境"
