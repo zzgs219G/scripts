@@ -551,18 +551,27 @@ _p_push() {
     fi
 }
 
+
 # ══════════════════════════════════════════
-#  ✅  发布转正（ok）
+#  ✅  发布转正（ok）- 支持控制台免构建锁
 # ══════════════════════════════════════════
 _ok_merge() {
     _check_git_repo || return 1
     local src="${1:-dev}"
     local dst="${2:-main}"
+    local opt="${3}" # 捕获第三个参数
 
     # 检查源分支是否存在
     if ! git rev-parse --verify "$src" >/dev/null 2>&1; then
         echo -e "\033[31m❌ 分支 '$src' 不存在！\033[0m"
         return 1
+    fi
+
+    # 确定是否注入免构建暗号
+    local msg="🔀 merge: ${src} → ${dst}"
+    if [ "$opt" = "noci" ] || [ "$opt" = "no-ci" ]; then
+        msg="🔀 merge: ${src} → ${dst} [no ci]"
+        echo -e "\033[33m🛡️ 已启动免构建锁，本次推送将阻止 Cloudflare 自动构建\033[0m"
     fi
 
     echo -e "\033[33m⚠️ 准备将 \033[1m${src}\033[0m\033[33m → \033[1m${dst}\033[0m\033[33m 合并发布\033[0m"
@@ -577,7 +586,7 @@ _ok_merge() {
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         _git_auto_ignore
         git checkout "$dst" && \
-        git merge "$src" --no-ff -m "🔀 merge: ${src} → ${dst}" && \
+        git merge "$src" --no-ff -m "${msg}" && \
         git push origin "$dst"
 
         if [ $? -eq 0 ]; then
@@ -595,6 +604,7 @@ _ok_merge() {
         echo -e "\033[31m⛔ 已取消\033[0m"
     fi
 }
+
 
 # ══════════════════════════════════════════
 #  💊  后悔药（no）
