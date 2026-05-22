@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════╗
 # ║          焚诀·究极进化版  Git Workflow System               ║
-# ║          v3.1 全面修复版                                    ║
+# ║          v3.2 全面修复版                                    ║
 # ╚══════════════════════════════════════════════════════════════╝
 #
 # 安装方法：
@@ -37,9 +37,60 @@ unset _FOUND_PATH
 # 获取方式：https://console.anthropic.com/
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
+
+
+FZ_VERSION="3.2"
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
 # ══════════════════════════════════════════
+
+_update_script() {
+    echo -e "\033[34m🔄 检查更新中...\033[0m"
+
+    # 1. 抓取远程最新版本号
+    local remote_version
+    remote_version=$(curl -fsSL https://raw.githubusercontent.com/zzgs219G/scripts/main/fzgit.sh | grep 'FZ_VERSION=' | head -1 | cut -d'"' -f2 | tr -d '\r')
+
+    if [ -z "$remote_version" ]; then
+        echo -e "\033[31m❌ 获取远程版本失败，请检查网络\033[0m"
+        return 1
+    fi
+
+    echo -e "📦 当前版本: \033[33m$FZ_VERSION\033[0m"
+    echo -e "🌐 最新版本: \033[33m$remote_version\033[0m"
+
+    # 2. 判断要不要更新
+    if [ "$remote_version" = "$FZ_VERSION" ]; then
+        echo -e "\033[32m✅ 已是最新版本，无需更新\033[0m"
+        return 0
+    fi
+
+    read -p "发现新版本，是否升级？(y/n): " c
+    [ "$c" != "y" ] && [ "$c" != "Y" ] && return 0
+
+    echo -e "\033[33m⬆️ 开始下载并注入新版本...\033[0m"
+
+    # 3. 核心修复：先下载到临时文件，再安全运行，避免重复卡死
+    local tmp_installer
+    tmp_installer=$(mktemp "${HOME}/fz_updater_XXXXXX.sh")
+    
+    if curl -fkSL -# https://raw.githubusercontent.com/zzgs219G/scripts/main/fzgit.sh -o "$tmp_installer"; then
+        bash "$tmp_installer"
+        rm -f "$tmp_installer"
+        
+        # 让新指令立刻生效
+        source ~/.bashrc
+        echo -e "\033[32m🎉 焚诀更新成功！当前版本已进化至 v$remote_version\033[0m"
+    else
+        echo -e "\033[31m❌ 下载更新失败\033[0m"
+        rm -f "$tmp_installer"
+        return 1
+    fi
+}
+
+
+
+
 
 # 检查是否在 Git 仓库内
 _check_git_repo() {
@@ -1141,6 +1192,7 @@ _rls_remote() {
 # ══════════════════════════════════════════
 #  🔤  别名注册
 # ══════════════════════════════════════════
+alias up='_update_script'
 alias setup='_setup_env'
 alias login='_github_login'
 alias repo='_create_repo'
@@ -1178,7 +1230,7 @@ alias unstage='git restore --staged . && echo -e "\033[33m↩️ 已取消所有
 # ══════════════════════════════════════════
 alias h='echo -e "\033[1;36m
 ╔══════════════════════════════════════════╗
-║      焚诀·Git 工作流  v3.1              ║
+║      焚诀·Git 工作流  v3.2              ║
 ╚══════════════════════════════════════════╝\033[0m
 
 \033[33m⚠️ 首次使用请先安装依赖：\033[0m
@@ -1191,7 +1243,8 @@ alias h='echo -e "\033[1;36m
 \033[1;35m╔══════════════════════════════════════════╗
 ║      指令秘籍                            ║
 ╚══════════════════════════════════════════╝\033[0m
-
+\033[1;33m── 🔧检查更新 ───────────────────────\033[0m
+  \033[36mup\033[0m         一键检查更新/自动升级《焚诀》✨新
 \033[1;33m── 🔧 初始化 ────────────────────────────\033[0m
   \033[36msetup\033[0m    检查环境 + 配置 Git 全局信息
   \033[36mlogin\033[0m    登录 GitHub（浏览器/Token）
@@ -1257,7 +1310,7 @@ INNER_EOF
 # ============================================================
 source ~/.bashrc
 echo -e "\n\033[1;32m╔══════════════════════════════════╗"
-echo -e "║  焚诀·v3.1 注入成功！           ║"
+echo -e "║  焚诀·v3.2 注入成功！           ║"
 echo -e "╚══════════════════════════════════╝\033[0m"
 echo -e "\n  执行 \033[36mh\033[0m 查看全部指令"
 echo -e "  执行 \033[36msetup\033[0m 初始化环境"
