@@ -390,6 +390,10 @@ _ls_projects() {
 #  🌿  分支管理（b）
 # ══════════════════════════════════════════
 _branch_mgr() {
+    echo -e "\033[34m🧹 正在同步远程并清理无效分支缓存...\033[0m"
+    git fetch -p >/dev/null 2>&1
+    git remote prune origin >/dev/null 2>&1
+
     _check_git_repo || return 1
 
     # b all：打捞所有远程分支
