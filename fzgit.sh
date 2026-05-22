@@ -33,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.41" 
+FZ_VERSION="3.49" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
