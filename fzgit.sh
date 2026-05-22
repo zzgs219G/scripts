@@ -34,7 +34,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.38" 
+FZ_VERSION="3.39" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -791,11 +791,10 @@ _p_push() {
         # 🧪 专属后门：推上去后，本地拦截，不刷新当前终端！
         # ══════════════════════════════════════════
         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            echo -e "\033[33m💡 [焚诀测试阵] 源码已进化至 v${next_version} 并上架 GitHub！\033[0m"
-            echo -e "\033[90m   (当前终端已被拦截，仍保持旧版。请稍微等待 1 分钟后输入 'up' 测试更新) \033[0m"
+            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
             
-            # 🚨 重点：我们把原本的 bash fzgit.sh 和 source ~/.bashrc 彻底删掉！
-            # 这样你眼前的终端数字就不会变，完美的保留在过去，供你测试更新。
+            bash fzgit.sh >/dev/null 2>&1  
+            source ~/.bashrc     
         fi
         # ══════════════════════════════════════════
     else
