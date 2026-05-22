@@ -34,7 +34,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.34" 
+FZ_VERSION="3.35" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -56,10 +56,18 @@ _update_script() {
     echo -e "🌐 最新版本: \033[33m$remote_version\033[0m"
 
     # 2. 判断要不要更新
-    if [ "$remote_version" = "$FZ_VERSION" ]; then
-        echo -e "\033[32m✅ 已是最新版本，无需更新\033[0m"
+    
+    # 先把可能混入的字母 v 或点去掉，只留下纯数字（例如 v3.34 变成 334）
+    local local_num=$(echo "$FZ_VERSION" | tr -d 'v.')
+    local remote_num=$(echo "$remote_version" | tr -d 'v.')
+
+    # 如果远端的数字 小于或者等于 本地数字，直接说明本地已经是最新版！
+    if [ "$remote_num" -le "$local_num" ] 2>/dev/null; then
+        echo -e "\033[32m✅ 已是最新版本（v$FZ_VERSION），无需更新\033[0m"
         return 0
     fi
+    # ══════════════════════════════════════════
+
 
     read -p "发现新版本，是否升级？(y/n): " c
     [ "$c" != "y" ] && [ "$c" != "Y" ] && return 0
