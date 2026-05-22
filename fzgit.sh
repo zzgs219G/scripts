@@ -33,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（这里不需要写任何公式，写个基础数字就行，因为以后 p 会自动帮你改它）
-FZ_VERSION="3.27" 
+FZ_VERSION="3.28" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -732,19 +732,24 @@ _p_push() {
     local remote_url=$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')
 
         # 核心判断：只有远程地址包含你的仓库名 "zzgs219g/scripts"，且当前目录下确实有 fzgit.sh
-    if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-        # 1. 计算即将生成的版本号（当前提交数 + 1）
-        local commits=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-        local next_version="3.$((commits + 1))"
+    if [ "$push_ok" -eq 1 ]; then
+        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
         
-        # 2. 自动把文件里的版本号改成死数字
-        sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" fzgit.sh
-        
-        # ⭐ 新增：让当前终端内存里的变量也立刻变成新版本号！
-        export FZ_VERSION="3.27"
-        
-        echo -e "\033[35m✨ [焚诀防护阵] 仓库检测成功，版本号已自动进化为 v${next_version}\033[0m"
+        # ══════════════════════════════════════════
+        # ⭐ 终极合体：如果当前是脚本仓库，把本地的 ~/.bashrc 也顺手迭代了
+        # ══════════════════════════════════════════
+        if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
+            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化至 v${next_version}...\033[0m"
+            # 1. 运行当前这个最新版的 fzgit.sh（它会自动清理旧的并把 3.27 写入 ~/.bashrc）
+            bash fzgit.sh >/dev/null 2>&1
+            # 2. 强行重载当前终端内存，让 3.27 全局立刻生效
+            source ~/.bashrc
+        fi
+        # ══════════════════════════════════════════
+    else
+        echo -e "\033[31m❌ 推送失败！可能需要先执行 'gsync' 同步\033[0m"
     fi
+
 
     # ══════════════════════════════════════════
 
