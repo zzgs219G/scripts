@@ -724,37 +724,25 @@ _p_push() {
         fi
         return 0
     fi
-    
-    
+
     # ══════════════════════════════════════════
-    # 🔒 安全防护罩：只对你自己的 scripts 仓库生效
+    # 🔒 安全防护罩：只对你自己的 scripts 仓库生效（植入点正确）
     # ══════════════════════════════════════════
-    # 获取当前项目的远程仓库地址（转成小写，方便比对）
     local remote_url=$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')
-
-        # 核心判断：只有远程地址包含你的仓库名 "zzgs219g/scripts"，且当前目录下确实有 fzgit.sh
-    if [ "$push_ok" -eq 1 ]; then
-        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
+    
+    if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
+        # 1. 精准数出本地现在的提交次数
+        local commits=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+        # 2. 预判下一次的版本号
+        local next_version="3.$((commits + 1))"
         
-        # ══════════════════════════════════════════
-        # ⭐ 终极合体：如果当前是脚本仓库，把本地的 ~/.bashrc 也顺手迭代了
-        # ══════════════════════════════════════════
-        if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化至 v${next_version}...\033[0m"
-            # 1. 运行当前这个最新版的 fzgit.sh（它会自动清理旧的并把 3.27 写入 ~/.bashrc）
-            bash fzgit.sh >/dev/null 2>&1
-            # 2. 强行重载当前终端内存，让 3.27 全局立刻生效
-            source ~/.bashrc
-        fi
-        # ══════════════════════════════════════════
-    else
-        echo -e "\033[31m❌ 推送失败！可能需要先执行 'gsync' 同步\033[0m"
+        # 3. 真正动手用 sed 强改本地源码文件（就是这里，之前漏掉了！）
+        sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" fzgit.sh
+        echo -e "\033[35m✨ [焚诀防护阵] 已检测到当前为脚本仓库，版本号已自动进化为 v${next_version}\033[0m"
     fi
-
-
     # ══════════════════════════════════════════
 
-
+    # 紧接着 add，把刚才被修改的版本号一起吞进去
     git add .
 
     local msg=""
@@ -777,7 +765,7 @@ _p_push() {
         echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
     }
 
-    # 自动处理首次推送（无上游分支）
+    # 执行真正的推送流程，此时才会诞生 push_ok 变量！
     local push_ok=0
     if ! git push origin "${b_name}" 2>/dev/null; then
         echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
@@ -786,12 +774,26 @@ _p_push() {
         push_ok=1
     fi
 
+    # 真正的推送成功判定，应该老老实实呆在最底部！
     if [ "$push_ok" -eq 1 ]; then
         echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
+        
+        # ══════════════════════════════════════════
+        # ⭐ 终极合体：推送彻底成功后，把最新的代码再刷进本地 ~/.bashrc
+        # ══════════════════════════════════════════
+        if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
+            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
+            # 运行更新后的本地最新版 fzgit.sh（把它重新拍进 ~/.bashrc 里）
+            bash fzgit.sh >/dev/null 2>&1
+            # 刷新当前终端的内存
+            source ~/.bashrc
+        fi
+        # ══════════════════════════════════════════
     else
         echo -e "\033[31m❌ 推送失败！可能需要先执行 'gsync' 同步\033[0m"
     fi
 }
+
 
 # ══════════════════════════════════════════
 #  ✅  发布转正（ok）
