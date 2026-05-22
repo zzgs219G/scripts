@@ -731,17 +731,22 @@ _p_push() {
     # ══════════════════════════════════════════
     # 获取当前项目的远程仓库地址（转成小写，方便比对）
     local remote_url=$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')
-    
-    # 核心判断：只有远程地址包含你的仓库名 "zzgs219g/scripts"，且当前目录下确实有 fzgit.sh
+
+        # 核心判断：只有远程地址包含你的仓库名 "zzgs219g/scripts"，且当前目录下确实有 fzgit.sh
     if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
         # 1. 计算即将生成的版本号（当前提交数 + 1）
         local commits=$(git rev-list --count HEAD 2>/dev/null || echo 0)
         local next_version="3.$((commits + 1))"
         
-        # 2. 自动把版本号改成死数字
+        # 2. 自动把文件里的版本号改成死数字
         sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" fzgit.sh
-        echo -e "\033[35m✨ [焚诀防护阵] 已检测到当前为脚本仓库，版本号已自动进化为 v${next_version}\033[0m"
+        
+        # ⭐ 新增：让当前终端内存里的变量也立刻变成新版本号！
+        export FZ_VERSION="${next_version}"
+        
+        echo -e "\033[35m✨ [焚诀防护阵] 仓库检测成功，版本号已自动进化为 v${next_version}\033[0m"
     fi
+
     # ══════════════════════════════════════════
 
 
