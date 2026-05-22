@@ -32,7 +32,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.61" 
+FZ_VERSION="3.62" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -42,7 +42,7 @@ _update_script() {
     echo -e "\033[34m🔄 检查更新中...\033[0m"
 
     local remote_version
-    remote_version=$(curl -fsSL https://purge.jsdelivr.net/gh/zzgs219G/scripts@main/fzgit.sh | grep 'FZ_VERSION=' | head -1 | cut -d'"' -f2 | tr -d '\r')
+    remote_version=$(curl -fsSL https://cdn.jsdelivr.net/gh/zzgs219G/scripts@main/fzgit.sh | grep 'FZ_VERSION=' | head -1 | cut -d'"' -f2 | tr -d '\r')
 
     if [ -z "$remote_version" ]; then
         echo -e "\033[31m❌ 获取远程版本失败，请检查网络\033[0m"
@@ -68,7 +68,7 @@ _update_script() {
     local tmp_installer
     tmp_installer=$(mktemp "${HOME}/fz_updater_XXXXXX.sh")
     
-    if curl -fkSL -# https://purge.jsdelivr.net/gh/zzgs219G/scripts@main/fzgit.sh -o "$tmp_installer"; then
+    if curl -fkSL -# https://cdn.jsdelivr.net/gh/zzgs219G/scripts@main/fzgit.sh -o "$tmp_installer"; then
         bash "$tmp_installer"
         rm -f "$tmp_installer"
         source ~/.bashrc
