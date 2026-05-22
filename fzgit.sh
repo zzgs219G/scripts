@@ -32,7 +32,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.67" 
+FZ_VERSION="3.68" 
 
 
 # ══════════════════════════════════════════
@@ -423,11 +423,19 @@ _ls_projects() {
 #  🌿  分支管理（b）
 # ══════════════════════════════════════════
 _branch_mgr() {
-    echo -e "\033[34m🧹 正在同步远程并清理无效分支缓存...\033[0m"
-    git fetch -p >/dev/null 2>&1
-    git remote prune origin >/dev/null 2>&1
-
+    
     _check_git_repo || return 1
+
+    if [ "$1" = "ql" ] || [ "$1" = "clean" ]; then
+        echo -e "\033[34m🧹 正在同步远程并清理无效分支缓存（联网中）...\033[0m"
+        if git fetch -p; then
+            git remote prune origin >/dev/null 2>&1
+            echo -e "\033[32m✅ 远程分支缓存清理完毕！本地视界已净化。\033[0m"
+        else
+            echo -e "\033[31m❌ 联网失败，请检查网络或代理设置\033[0m"
+        fi
+        return 0
+    fi
 
     if [ "$1" = "all" ]; then
         echo -e "\033[34m📥 正在打捞所有远程分支实体...\033[0m"
@@ -1239,6 +1247,7 @@ alias h='echo -e "\033[1;36m
   \033[36mb\033[0m          列出分支 → 选编号切换
   \033[36mb <名字>\033[0m   直接切换/创建分支
   \033[36mb -l\033[0m       显示所有分支（含远程）
+  \033[36mb ql\033[0m       清理分支缓存
   \033[36mb -d <名>\033[0m   删除本地分支
   \033[36mb -dr <名>\033[0m  删除远程分支
   \033[36mgomain\033[0m     回到 main/master
