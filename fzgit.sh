@@ -731,23 +731,23 @@ _p_push() {
     fi
 
     # ══════════════════════════════════════════
-    # 🔒 安全防护罩：只对你自己的 scripts 仓库生效（植入点正确）
+    # 🛠️ 修复位置 1：真·提交次数算法引擎（替换了你原本抠文件的旧防护罩）
     # ══════════════════════════════════════════
     local remote_url=$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    local next_version=""
+    local next_sub_ver=0
+
     if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-        # 1. 直接从 fzgit.sh 文件里掐出当前的小版本号（比如从 3.32 里掐出 32）
-        local current_sub_ver=$(grep 'FZ_VERSION=' fzgit.sh | head -1 | cut -d'"' -f2 | cut -d'.' -f2)
+        # 物理去数你本地的 Git 真实提交总次数
+        local commit_count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
         
-        # 2. 如果掐失败了，给个保底数字 32
-        current_sub_ver=${current_sub_ver:-32}
+        # 下一个版本号 = 历史总次数 + 1
+        next_sub_ver=$((commit_count + 1))
+        next_version="3.${next_sub_ver}"
         
-        # 3. 让小版本号无脑自增 +1（32 变成 33）
-        local next_sub_ver=$((current_sub_ver + 1))
-        local next_version="3.${next_sub_ver}"
-        
-        # 4. 用 sed 精准涂改文件
+        # 用绝对不会失效的规则强行改写源码版本号
         sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" fzgit.sh
-        echo -e "\033[35m✨ [焚诀防护阵] 基准版本号自增成功，正在以 v${next_version} 准备上架...\033[0m"
+        echo -e "\033[35m✨ [焚诀算法阵] 历史提交 ${commit_count} 次，正在以 v${next_version} 准备上架...\033[0m"
     fi
     # ══════════════════════════════════════════
 
@@ -774,7 +774,7 @@ _p_push() {
         echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
     }
 
-    # 执行真正的推送流程，此时才会诞生 push_ok 变量！
+    # 执行真正的推送流程
     local push_ok=0
     if ! git push origin "${b_name}" 2>/dev/null; then
         echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
@@ -783,25 +783,32 @@ _p_push() {
         push_ok=1
     fi
 
-       # 找到你 _p_push 里的这部分，改成下面这样就彻底好使了！
-         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            # 1. 自动计算要退回的上一个版本号（当前提交总数）
+    # ══════════════════════════════════════════
+    # 🛠️ 修复位置 2：补全成功判定 + 安全时空阵回滚（替换了原本漏掉判断和闭合的尾部）
+    # ══════════════════════════════════════════
+    if [ "$push_ok" -eq 1 ]; then
+        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
+        
+        if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
+            # 自动计算要退回的上一个版本号
             local rolled_sub=$((next_sub_ver - 1))
             local old_version="3.${rolled_sub}"
             
             echo -e "\033[33m💡 [焚诀时空阵] 远程已上架 v${next_version}，本地自动退回 v${old_version} 供你测 up！\033[0m"
             
-            # 2. 强力改写源码文件的变量
+            # 强力改写源码文件的变量
             sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
             
-            # 3. 借助你原本脚本的安装逻辑重塑本地终端，杜绝任何语法报错
+            # 借助你原本脚本的安装逻辑重塑本地终端，杜绝任何语法报错
             bash fzgit.sh >/dev/null 2>&1
             source ~/.bashrc 2>/dev/null
         fi
-
-
-
+    else
+        echo -e "\033[31m❌ 推送失败！可能需要先执行 'gsync' 同步\033[0m"
+    fi
+    # ══════════════════════════════════════════
 }
+
 
 
 # ══════════════════════════════════════════
