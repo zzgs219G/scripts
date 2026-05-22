@@ -33,7 +33,6 @@ unset _FOUND_PATH
 # 获取方式：https://console.anthropic.com/
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
-
 #版本号（这里不需要写任何公式，写个基础数字就行，因为以后 p 会自动帮你改它）
 FZ_VERSION="3.23" 
 
