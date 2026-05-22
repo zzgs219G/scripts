@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 # 安装方法：
 #   bash git_workflow_ultimate.sh
 #
@@ -34,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.40" 
+FZ_VERSION="3.41" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -798,7 +797,7 @@ _p_push() {
             echo -e "\033[33m💡 [焚诀时空阵] 远程已上架 v${next_version}，本地自动退回 v${old_version} 供你测 up！\033[0m"
             
             # 2. 强行把你本地文件、本地终端、全局变量通通改回前一个版本号
-            export FZ_VERSION="3.40"
+            export FZ_VERSION="3.41"
             sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
             sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" ~/.bashrc
             sed -i "s/工作流  v[^\"]*/工作流  v${old_version}/g" ~/.bashrc
