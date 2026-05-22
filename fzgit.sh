@@ -6,7 +6,7 @@
 # 或手动注入：
 #   cat git_workflow_ultimate.sh >> ~/.bashrc && source ~/.bashrc
 # ============================================================
-# 清理旧版本
+# 清理旧版本 
 # ============================================================
 sed -i '/AI_GIT_WORKFLOW/,/END/d' ~/.bashrc
 
@@ -34,7 +34,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.28" 
+FZ_VERSION="3.32" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
