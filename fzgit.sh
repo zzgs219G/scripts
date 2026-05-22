@@ -33,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.56" 
+FZ_VERSION="3.57" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -786,20 +786,15 @@ _p_push() {
     # 🛠️ 修复位置 2：补全成功判定 + 安全时空阵回滚（替换了原本漏掉判断和闭合的尾部）
     # ═════════════════════════════════════════
         
-    if [ "$push_ok" -eq 1 ]; then
-        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
-        
-        if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-           # echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
-            # 推完之后，本地和远程一起保持最新，绝不用 sed 往后退！
-          #   bash fzgit.sh >/dev/null 2>&1  
-         #   source ~/.bashrc 2>/dev/null    
-        fi
-    else
-        echo -e "\033[31m❌ 推送失败！\033[0m"
+if [ "$push_ok" -eq 1 ]; then
+    echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
+    
+    if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
+        echo -e "\033[35m💡 远程已更新至 v${next_version}，执行 \033[1mup\033[0m\033[35m 更新本地环境\033[0m"
     fi
-
-    # ══════════════════════════════════════════
+else
+    echo -e "\033[31m❌ 推送失败！\033[0m"
+fi
 }
 
 
