@@ -34,7 +34,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.39" 
+FZ_VERSION="3.40" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -784,22 +784,33 @@ _p_push() {
     fi
 
        # 找到你 _p_push 里的这部分，改成下面这样就彻底好使了！
-    if [ "$push_ok" -eq 1 ]; then
+        if [ "$push_ok" -eq 1 ]; then
         echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
         
-        # ══════════════════════════════════════════
-        # 🧪 专属后门：推上去后，本地拦截，不刷新当前终端！
-        # ══════════════════════════════════════════
         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
+            # ══════════════════════════════════════════
+            # 🎭 【兄弟专属：天才自降版本测试阵】
+            # ══════════════════════════════════════════
+            # 1. 算出刚刚推上去的那个大版本数字（比如 38）
+            local rolled_sub=$((next_sub_ver - 1))
+            local old_version="3.${rolled_sub}"
             
-            bash fzgit.sh >/dev/null 2>&1  
-            source ~/.bashrc     
+            echo -e "\033[33m💡 [焚诀时空阵] 远程已上架 v${next_version}，本地自动退回 v${old_version} 供你测 up！\033[0m"
+            
+            # 2. 强行把你本地文件、本地终端、全局变量通通改回前一个版本号
+            export FZ_VERSION="3.40"
+            sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
+            sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" ~/.bashrc
+            sed -i "s/工作流  v[^\"]*/工作流  v${old_version}/g" ~/.bashrc
+            
+            # 3. 顺手刷新内存，让 h 菜单立刻显示旧版
+            source ~/.bashrc
         fi
         # ══════════════════════════════════════════
     else
-        echo -e "\033[31m❌ 推送失败！可能需要先执行 'gsync' 同步\033[0m"
+        echo -e "\033[31m❌ 推送失败！\033[0m"
     fi
+
 
 }
 
