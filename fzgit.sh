@@ -343,8 +343,8 @@ _ls_projects() {
     fi
 
     echo -e "\n\033[1;36m📊 工作台项目总览\033[0m\n"
-    printf "  \033[90m%-28s %-14s %-8s %s\033[0m\n" "项目名" "分支" "变更" "最近提交"
-    echo -e "  \033[90m──────────────────────────────────────────────────────────\033[0m"
+    printf "  \033[90m%-22s %-10s %-10s %-8s %s\033[0m\n" "项目名" "状态" "分支" "变更" "最近提交"
+    echo -e "  \033[90m────────────────────────────────────────────────────────────\033[0m"
 
     local count=0
     for dir in "${FZ_BASE}"/*/; do
@@ -358,17 +358,28 @@ _ls_projects() {
             commit=$(cd "$dir" && git log -1 --format="%s" 2>/dev/null | cut -c1-30 || echo "-")
             changes=$(cd "$dir" && git status -s 2>/dev/null | wc -l | tr -d ' ')
 
-            local branch_color="\033[32m"
-            [ "$branch" = "main" ] || [ "$branch" = "master" ] && branch_color="\033[33m"
+            # ⭐ 核心：判断同步状态（带中文）
+            local ahead behind sync_status
+            ahead=$(cd "$dir" && git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
+            behind=$(cd "$dir" && git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)
+
+            if [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
+                sync_status="🔵分叉"
+            elif [ "$ahead" -gt 0 ]; then
+                sync_status="🟡领先"
+            elif [ "$behind" -gt 0 ]; then
+                sync_status="🔴落后"
+            else
+                sync_status="🟢同步"
+            fi
 
             local changes_display="-"
-            local changes_color="\033[90m"
-            [ "$changes" -gt 0 ] && changes_display="${changes}个" && changes_color="\033[31m"
+            [ "$changes" -gt 0 ] && changes_display="${changes}个"
 
-            printf "  %-28s ${branch_color}%-14s\033[0m ${changes_color}%-6s\033[0m \033[90m%s\033[0m\n" \
-                "$name" "$branch" "$changes_display" "$commit"
+            printf "  %-22s %-10s %-10s %-8s \033[90m%s\033[0m\n" \
+                "$name" "$sync_status" "$branch" "$changes_display" "$commit"
         else
-            printf "  %-28s \033[90m%-14s\033[0m\n" "$name" "(非Git仓库)"
+            printf "  %-22s \033[90m%-10s\033[0m\n" "$name" "(非Git)"
         fi
     done
 
