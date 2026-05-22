@@ -33,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.50" 
+FZ_VERSION="3.51" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -788,23 +788,19 @@ _p_push() {
     if [ "$push_ok" -eq 1 ]; then
         echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
         
+            if [ "$push_ok" -eq 1 ]; then
+        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
+        
         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            # 自动计算要退回的上一个版本号
-            local rolled_sub=$((next_sub_ver - 1))
-            local old_version="3.${rolled_sub}"
-            
-            echo -e "\033[33m💡 [焚诀时空阵] 远程已上架 v${next_version}，本地自动退回 v${old_version} 供你测 up！\033[0m"
-            
-            # 强力改写源码文件的变量
-            sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
-            
-            # 借助你原本脚本的安装逻辑重塑本地终端，杜绝任何语法报错
-            bash fzgit.sh >/dev/null 2>&1
-            source ~/.bashrc 2>/dev/null
+            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
+            # 推完之后，本地和远程一起保持最新，绝不用 sed 往后退！
+            bash fzgit.sh >/dev/null 2>&1  
+            source ~/.bashrc 2>/dev/null    
         fi
     else
-        echo -e "\033[31m❌ 推送失败！可能需要先执行 'gsync' 同步\033[0m"
+        echo -e "\033[31m❌ 推送失败！\033[0m"
     fi
+
     # ══════════════════════════════════════════
 }
 
