@@ -34,7 +34,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.32" 
+FZ_VERSION="3.33" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -729,16 +729,20 @@ _p_push() {
     # 🔒 安全防护罩：只对你自己的 scripts 仓库生效（植入点正确）
     # ══════════════════════════════════════════
     local remote_url=$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')
-    
     if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-        # 1. 精准数出本地现在的提交次数
-        local commits=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-        # 2. 预判下一次的版本号
-        local next_version="3.$((commits + 1))"
+        # 1. 直接从 fzgit.sh 文件里掐出当前的小版本号（比如从 3.32 里掐出 32）
+        local current_sub_ver=$(grep 'FZ_VERSION=' fzgit.sh | head -1 | cut -d'"' -f2 | cut -d'.' -f2)
         
-        # 3. 真正动手用 sed 强改本地源码文件（就是这里，之前漏掉了！）
+        # 2. 如果掐失败了，给个保底数字 32
+        current_sub_ver=${current_sub_ver:-32}
+        
+        # 3. 让小版本号无脑自增 +1（32 变成 33）
+        local next_sub_ver=$((current_sub_ver + 1))
+        local next_version="3.${next_sub_ver}"
+        
+        # 4. 用 sed 精准涂改文件
         sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" fzgit.sh
-        echo -e "\033[35m✨ [焚诀防护阵] 已检测到当前为脚本仓库，版本号已自动进化为 v${next_version}\033[0m"
+        echo -e "\033[35m✨ [焚诀防护阵] 基准版本号自增成功，正在以 v${next_version} 准备上架...\033[0m"
     fi
     # ══════════════════════════════════════════
 
