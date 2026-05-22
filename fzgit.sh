@@ -783,32 +783,36 @@ _p_push() {
     fi
 
        # 找到你 _p_push 里的这部分，改成下面这样就彻底好使了！
-        if [ "$push_ok" -eq 1 ]; then
+            if [ "$push_ok" -eq 1 ]; then
         echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
         
         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
             # ══════════════════════════════════════════
-            # 🎭 【兄弟专属：天才自降版本测试阵】
+            # 🎭 【精准回滚：绝不误伤其他代码】
             # ══════════════════════════════════════════
-            # 1. 算出刚刚推上去的那个大版本数字（比如 38）
+            # 1. 计算要回退的前一个版本号（比如 41 - 1 = 40）
             local rolled_sub=$((next_sub_ver - 1))
             local old_version="3.${rolled_sub}"
             
             echo -e "\033[33m💡 [焚诀时空阵] 远程已上架 v${next_version}，本地自动退回 v${old_version} 供你测 up！\033[0m"
             
-            # 2. 强行把你本地文件、本地终端、全局变量通通改回前一个版本号
-            export FZ_VERSION="3.41"
-            sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
-            sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" ~/.bashrc
-            sed -i "s/工作流  v[^\"]*/工作流  v${old_version}/g" ~/.bashrc
+            # 2. 精准修改本地源码文件里的变量（加个 ^ 锚定行首，防止误伤别处）
+            sed -i "s/^FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
             
-            # 3. 顺手刷新内存，让 h 菜单立刻显示旧版
-            source ~/.bashrc
+            # 3. 精准修改 ~/.bashrc 里的变量
+            sed -i "s/^FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" ~/.bashrc
+            
+            # 4. 强制刷新当前终端的内存变量，不走盲目冲刷
+            export FZ_VERSION="3.41"
+            
+            # 5. 最后安全重载，恢复终端秩序
+            source ~/.bashrc 2>/dev/null
         fi
         # ══════════════════════════════════════════
     else
         echo -e "\033[31m❌ 推送失败！\033[0m"
     fi
+
 
 
 }
