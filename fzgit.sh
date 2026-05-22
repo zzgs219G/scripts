@@ -5,7 +5,6 @@
 #
 # 或手动注入：
 #   cat git_workflow_ultimate.sh >> ~/.bashrc && source ~/.bashrc
-
 # ============================================================
 # 清理旧版本
 # ============================================================
@@ -34,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（这里不需要写任何公式，写个基础数字就行，因为以后 p 会自动帮你改它）
-FZ_VERSION="3.23" 
+FZ_VERSION="3.27" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -742,7 +741,7 @@ _p_push() {
         sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" fzgit.sh
         
         # ⭐ 新增：让当前终端内存里的变量也立刻变成新版本号！
-        export FZ_VERSION="${next_version}"
+        export FZ_VERSION="3.27"
         
         echo -e "\033[35m✨ [焚诀防护阵] 仓库检测成功，版本号已自动进化为 v${next_version}\033[0m"
     fi
