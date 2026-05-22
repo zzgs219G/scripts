@@ -32,7 +32,8 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.66" 
+FZ_VERSION="3.67" 
+
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
