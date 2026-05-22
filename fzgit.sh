@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 # 安装方法：
 #   bash git_workflow_ultimate.sh
 #
@@ -33,7 +32,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.60" 
+FZ_VERSION="3.61" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
