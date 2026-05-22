@@ -34,7 +34,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.54" 
+FZ_VERSION="3.55" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
@@ -791,10 +791,10 @@ _p_push() {
         echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
         
         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
+           # echo -e "\033[35m🔄 [焚诀防护阵] 正在同步使本地终端进化...\033[0m"
             # 推完之后，本地和远程一起保持最新，绝不用 sed 往后退！
-            bash fzgit.sh >/dev/null 2>&1  
-            source ~/.bashrc 2>/dev/null    
+          #   bash fzgit.sh >/dev/null 2>&1  
+         #   source ~/.bashrc 2>/dev/null    
         fi
     else
         echo -e "\033[31m❌ 推送失败！\033[0m"
