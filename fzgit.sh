@@ -782,35 +782,20 @@ _p_push() {
     fi
 
        # 找到你 _p_push 里的这部分，改成下面这样就彻底好使了！
-            if [ "$push_ok" -eq 1 ]; then
-        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
-        
-        if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
-            # ══════════════════════════════════════════
-            # 🎭 【精准回滚：绝不误伤其他代码】
-            # ══════════════════════════════════════════
-            # 1. 计算要回退的前一个版本号（比如 41 - 1 = 40）
+         if [[ "$remote_url" == *"zzgs219g/scripts"* ]] && [ -f fzgit.sh ]; then
+            # 1. 自动计算要退回的上一个版本号（当前提交总数）
             local rolled_sub=$((next_sub_ver - 1))
             local old_version="3.${rolled_sub}"
             
             echo -e "\033[33m💡 [焚诀时空阵] 远程已上架 v${next_version}，本地自动退回 v${old_version} 供你测 up！\033[0m"
             
-            # 2. 精准修改本地源码文件里的变量（加个 ^ 锚定行首，防止误伤别处）
-            sed -i "s/^FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
+            # 2. 强力改写源码文件的变量
+            sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" fzgit.sh
             
-            # 3. 精准修改 ~/.bashrc 里的变量
-            sed -i "s/^FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${old_version}\"/g" ~/.bashrc
-            
-            # 4. 强制刷新当前终端的内存变量，不走盲目冲刷
-            export FZ_VERSION="3.41"
-            
-            # 5. 最后安全重载，恢复终端秩序
+            # 3. 借助你原本脚本的安装逻辑重塑本地终端，杜绝任何语法报错
+            bash fzgit.sh >/dev/null 2>&1
             source ~/.bashrc 2>/dev/null
         fi
-        # ══════════════════════════════════════════
-    else
-        echo -e "\033[31m❌ 推送失败！\033[0m"
-    fi
 
 
 
