@@ -16,7 +16,6 @@ sed -i '/AI_GIT_WORKFLOW/,/END/d' ~/.bashrc
 cat << 'INNER_EOF' >> ~/.bashrc
 # --- AI_GIT_WORKFLOW ---
 
-
 # ══════════════════════════════════════════
 #  📁  基础配置
 # ══════════════════════════════════════════
@@ -34,7 +33,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""   # 填入你的 Anthropic API Key
 
 #版本号（p会自动更新版本号）
-FZ_VERSION="3.35" 
+FZ_VERSION="3.36" 
 
 # ══════════════════════════════════════════
 #  🛡️  内部工具函数
