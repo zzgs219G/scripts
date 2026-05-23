@@ -32,7 +32,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.69" 
+FZ_VERSION="3.70" 
 
 
 # ══════════════════════════════════════════
@@ -1034,7 +1034,7 @@ local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
     done < <(
         { git ls-files -c -o --exclude-standard 2>/dev/null || \
           find . -type f ! -path "*/\.git/*" ! -path "*/node_modules/*"; } | \
-        grep -iE "\.(html|htm|js|jsx|ts|tsx|vue|css|scss|sass|less|json|md|kt|kts|java|xml|py|rb|go|rs|swift|dart|yaml|yml|sh|bash)$" | \
+        grep -iE "\.(html|htm|js|jsx|ts|tsx|vue|svelte|css|scss|sass|less|json|md|kt|kts|java|xml|py|rb|go|rs|swift|dart|yaml|yml|sh|bash)$" | \
         grep -vE "(^|/)\.|(package-lock|yarn\.lock|pnpm-lock|\.min\.(js|css)|assets/(vue_global_prod|tailwindcss|remixicon)\.)" | \
         { [ -n "$MODULE" ] && grep -i "$MODULE" || cat; } | \
         sort
@@ -1061,6 +1061,7 @@ local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
         echo -e "  📋 路径已复制到剪贴板"
     fi
 }
+
 
 # ══════════════════════════════════════════
 #  📥  克隆增强（cl）
