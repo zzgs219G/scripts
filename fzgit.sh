@@ -32,7 +32,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.68" 
+FZ_VERSION="3.69" 
 
 
 # ══════════════════════════════════════════
@@ -690,6 +690,8 @@ _p_push() {
     _git_auto_ignore
 
     local b_name=$(git branch --show-current)
+    
+
 
     echo -e "\033[36m📋 变更文件:\033[0m"
     git status -s
@@ -722,6 +724,15 @@ _p_push() {
     fi
 
     git add .
+    
+    local skip_ci_flag=""
+    
+       # 如果第一个参数输入的是 skip，就做好标记，并把变量换成第 2 个参数
+    if [ "$1" = "skip" ]; then
+        skip_ci_flag=" [skip ci]"
+        set -- "$2"
+    fi
+
 
     local msg=""
     if [ -n "$1" ]; then
@@ -737,9 +748,12 @@ _p_push() {
 
     [ -z "$msg" ] && msg="⚡ update: $(date '+%m-%d %H:%M')"
 
-    echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}\033[0m"
+    echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}${skip_ci_flag}\033[0m"
 
-    git commit -m "${msg}" 2>/dev/null || {
+
+
+
+    git commit -m "${msg}${skip_ci_flag}" 2>/dev/null || {
         echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
     }
 
@@ -765,6 +779,7 @@ _p_push() {
 #  ✅  发布转正（ok）
 # ══════════════════════════════════════════
 _ok_merge() {
+
     _check_git_repo || return 1
     local src="${1:-dev}"
     local dst="${2:-main}"
@@ -775,11 +790,12 @@ _ok_merge() {
         return 1
     fi
 
-    local msg="🔀 merge: ${src} → ${dst}"
-    if [ "$opt" = "noci" ] || [ "$opt" = "no-ci" ] || [ "$opt" = "[no ci]" ]; then
-        msg="🔀 merge: ${src} → ${dst} [no ci]"
-        echo -e "\033[33m🛡️ 已启用免构建锁（Cloudflare/CI 将跳过本次构建）\033[0m"
+        local msg="🔀 merge: ${src} → ${dst}"
+    if [ "$opt" = "skip" ]; then
+        msg="🔀 merge: ${src} → ${dst} [skip ci]"
+        echo -e "\033[33m🛡️ 已启用免构建锁（将跳过 CI 构建）\033[0m"
     fi
+
 
     echo -e "\033[33m⚠️ 准备将 \033[1m${src}\033[0m\033[33m → \033[1m${dst}\033[0m\033[33m 合并发布\033[0m"
     echo -e "\033[36m\n待合并的提交:\033[0m"
@@ -970,12 +986,13 @@ _tag_mgr() {
 # ══════════════════════════════════════════
 _f_burn() {
     local MODULE="$1"
-    local TIMESTAMP
-    TIMESTAMP=$(date '+%m%d_%H%M')
-
+    
     local TMP_FILE
     TMP_FILE=$(mktemp "${HOME}/fz_burn_tmp_XXXXXX.txt")
-    local OUT_NAME="ai_code_${MODULE:-all}_${TIMESTAMP}.txt"
+    local PROJECT_NAME
+PROJECT_NAME=$(basename "$PWD")
+
+local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
     local OUT_FILE="${HOME}/${OUT_NAME}"
 
     echo -e "\033[33m⚡ 炼化启动...\033[0m"
@@ -1255,12 +1272,12 @@ alias h='echo -e "\033[1;36m
   \033[36mbclean\033[0m     清理已合并的本地分支
 
 \033[1;33m── 🚀 推送 & 发布 ───────────────────────\033[0m
-  \033[36mp\033[0m          推送（AI key 自动生成备注）
+  \033[36mp\033[0m          推送，p skip可跳过CI构建
   \033[36mp \"备注\"\033[0m   指定备注推送
   \033[36mgsync\033[0m      安全同步远程（fetch+rebase）
   \033[36mpull\033[0m       拉取最新代码
   \033[36mok\033[0m         合并 dev→main 发布
-  \033[36mok dev main noci\033[0m  合并并跳过 CI 构建
+  \033[36mok dev main skip\033[0m  合并 跳过 CI 构建
   \033[31mno\033[0m         撤回最后一次发布 ⚠️ 危险
 
 \033[1;33m── 📊 查看 & 对比 ───────────────────────\033[0m
