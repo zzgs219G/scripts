@@ -32,7 +32,7 @@ unset _FOUND_PATH
 export FZ_AI_KEY=""
 
 #版本号
-FZ_VERSION="3.71" 
+FZ_VERSION="3.72" 
 
 
 # ══════════════════════════════════════════
@@ -1035,7 +1035,7 @@ local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
         { git ls-files -c -o --exclude-standard 2>/dev/null || \
           find . -type f ! -path "*/\.git/*" ! -path "*/node_modules/*"; } | \
         # 仅仅在这里加上了 astro|svelte，其余字符、变量、逻辑一个字都没动
-        grep -iE "\.(html|htm|js|jsx|ts|tsx|vue|astro|svelte|css|scss|sass|less|json|md|kt|kts|java|xml|py|rb|go|rs|swift|dart|yaml|yml|sh|bash)$" | \
+        grep -iE "\.(html|htm|js|jsx|ts|tsx|vue|astro|svelte|css|scss|sass|less|json|md|kt|kts|java|xml|py|rb|go|rs|swift|dart|yaml|yml|sh|bash|php)$" | \
         grep -vE "(^|/)\.|(package-lock|yarn\.lock|pnpm-lock|\.min\.(js|css)|assets/(vue_global_prod|tailwindcss|remixicon)\.)" | \
         { [ -n "$MODULE" ] && grep -i "$MODULE" || cat; } | \
         sort
