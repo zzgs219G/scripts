@@ -9,3 +9,8 @@ __pycache__/
 node_modules/
 dist/
 .env
+
+# ── 焚诀：本地备份与临时文件 ──
+fzgit.orig.sh
+fz_updater_*.sh
+fz_burn_tmp_*.txt
