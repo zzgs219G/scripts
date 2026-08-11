@@ -8,6 +8,8 @@
 #  对应别名：setup  login  repo  remote  trust  aikey  up
 #  说明：_create_repo / _remote_mgr 属 GitHub 环境相关，计划书
 #        未单列，按就近原则归入本模块。
+#  ⚠️ v4.0 加固：_github_login 增加非交互终端检测，避免管道
+#     环境下 gh auth login 阻塞轮询
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
 
@@ -101,6 +103,12 @@ _trust_dir() {
 # ══════════════════════════════════════════
 _github_login() {
     echo -e "\n\033[1;35m🔑 GitHub 登录向导\033[0m\n"
+
+    # v4.0 加固：非交互环境（管道/脚本）下 gh 交互流程会阻塞，提前退出
+    if [ ! -t 0 ]; then
+        echo -e "\033[31m❌ login 需要交互终端，请直接在终端中执行\033[0m"
+        return 1
+    fi
 
     if ! command -v gh &>/dev/null; then
         echo -e "\033[31m❌ 需要先安装 GitHub CLI，执行 'setup'\033[0m"

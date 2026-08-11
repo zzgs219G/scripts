@@ -4,6 +4,8 @@
 #  职责：日志 / 差异 / 仓库信息 / 远程仓库文件列表
 #  包含函数：_log_pretty  _diff_view  _repo_info  _rls_remote
 #  对应别名：lg  d  info  rls
+#  ⚠️ v4.0 加固：_repo_info 的 git shortlog 增加 </dev/null，
+#     避免 stdin 为管道（非交互/脚本环境）时 pager 挂起
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
 
@@ -62,7 +64,7 @@ _repo_info() {
 
     echo -e "  ─────────────────────────────────"
     echo -e "  \033[90m贡献者:\033[0m"
-    git shortlog -sn 2>/dev/null | head -5 | awk '{print "    "$0}'
+    git shortlog -sn </dev/null 2>/dev/null | head -5 | awk '{print "    "$0}'
     echo ""
 }
 
