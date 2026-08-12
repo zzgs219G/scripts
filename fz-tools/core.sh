@@ -28,7 +28,7 @@ _git_auto_ignore() {
 
 # JSON 转义（优先 python3，退化到纯 bash）
 _json_escape() {
-    local s="$1"
+    local s="${1:-}"
     if command -v python3 &>/dev/null; then
         printf '%s' "$s" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null
     else

@@ -25,7 +25,7 @@ _log_pretty() {
 # ══════════════════════════════════════════
 _diff_view() {
     _check_git_repo || return 1
-    if [ -z "$1" ]; then
+    if [ -z "${1:-}" ]; then
         local changed=$(git diff --stat 2>/dev/null)
         if [ -z "$changed" ]; then
             echo -e "\033[32m✅ 工作区无未暂存的变更\033[0m"
@@ -33,12 +33,12 @@ _diff_view() {
             echo -e "\033[36m📊 未暂存的变更:\033[0m"
             git diff --stat
         fi
-    elif [ "$1" = "s" ] || [ "$1" = "staged" ]; then
+    elif [ "${1:-}" = "s" ] || [ "${1:-}" = "staged" ]; then
         echo -e "\033[36m📊 已暂存的变更:\033[0m"
         git diff --staged --stat
     else
         echo -e "\033[36m📊 与 $1 的差异:\033[0m"
-        git diff "$1" --stat
+        git diff "${1:-}" --stat
     fi
 }
 
@@ -72,7 +72,7 @@ _repo_info() {
 #  🌐  查看远程仓库文件（rls）
 # ══════════════════════════════════════════
 _rls_remote() {
-    if [ -z "$1" ]; then
+    if [ -z "${1:-}" ]; then
         echo -e "\033[31m❌ 用法: rls 用户名/仓库名\033[0m"
         return 1
     fi
@@ -82,7 +82,7 @@ _rls_remote() {
         return 1
     fi
 
-    local repo="$1"
+    local repo="${1:-}"
     echo -e "\033[1;36m🌐 仓库: $repo\033[0m\n"
 
     gh api "repos/$repo/contents" \

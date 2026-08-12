@@ -29,7 +29,7 @@ _stash_pop() {
     fi
     echo -e "\033[36m📦 暂存列表:\033[0m"
     git stash list
-    if [ -z "$1" ]; then
+    if [ -z "${1:-}" ]; then
         git stash pop && echo -e "\033[32m✅ 已恢复最近暂存\033[0m"
     else
         git stash pop "stash@{$1}" && echo -e "\033[32m✅ 已恢复暂存 [$1]\033[0m"

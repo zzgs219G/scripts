@@ -15,7 +15,16 @@
 _branch_mgr() {
     _check_git_repo || return 1
 
-    if [ "$1" = "ql" ] || [ "$1" = "clean" ]; then
+    # v5.0：增加当前所在书签/项目路径提示（计划书 6.1）
+    local _bm_cur
+    _bm_cur=$(_bm_current)
+    if [ -n "$_bm_cur" ]; then
+        echo -e "\033[90m📍 书签: \033[36m${_bm_cur}\033[0m\033[90m | 路径: $(pwd)\033[0m"
+    else
+        echo -e "\033[90m📍 路径: $(pwd)\033[0m"
+    fi
+
+    if [ "${1:-}" = "ql" ] || [ "${1:-}" = "clean" ]; then
         echo -e "\033[34m🧹 正在同步远程并清理无效分支缓存（联网中）...\033[0m"
         if git fetch -p; then
             git remote prune origin >/dev/null 2>&1
@@ -26,7 +35,7 @@ _branch_mgr() {
         return 0
     fi
 
-    if [ "$1" = "all" ]; then
+    if [ "${1:-}" = "all" ]; then
         echo -e "\033[34m📥 正在打捞所有远程分支实体...\033[0m"
         git fetch --all --prune 2>/dev/null
 
@@ -46,7 +55,7 @@ _branch_mgr() {
         return 0
     fi
 
-    if [ -z "$1" ]; then
+    if [ -z "${1:-}" ]; then
         echo -e "\033[1;36m🌿 分支列表:\033[0m"
         local branches=()
         while IFS= read -r line; do
@@ -92,11 +101,11 @@ _branch_mgr() {
             fi
         fi
 
-    elif [ "$1" = "-l" ] || [ "$1" = "list" ]; then
+    elif [ "${1:-}" = "-l" ] || [ "${1:-}" = "list" ]; then
         echo -e "\033[1;36m🌿 所有分支（含远程）:\033[0m"
         git branch -a --color
 
-    elif [ "$1" = "-d" ] || [ "$1" = "del" ]; then
+    elif [ "${1:-}" = "-d" ] || [ "${1:-}" = "del" ]; then
         local b_del="${2}"
         [ -z "$b_del" ] && read -p "要删除的分支名: " b_del
         read -p "确认删除本地分支 '$b_del'？(y/n): " confirm
@@ -104,7 +113,7 @@ _branch_mgr() {
             git branch -d "$b_del" && \
             echo -e "\033[32m🗑️ 已删除本地分支: $b_del\033[0m"
 
-    elif [ "$1" = "-dr" ] || [ "$1" = "delremote" ]; then
+    elif [ "${1:-}" = "-dr" ] || [ "${1:-}" = "delremote" ]; then
         local b_del="${2}"
         [ -z "$b_del" ] && read -p "要删除的远程分支名: " b_del
         read -p "确认删除远程分支 'origin/$b_del'？(y/n): " confirm
@@ -113,7 +122,7 @@ _branch_mgr() {
             echo -e "\033[32m🗑️ 已删除远程分支: $b_del\033[0m"
 
     else
-        git checkout -b "$1" 2>/dev/null || git checkout "$1"
+        git checkout -b "${1:-}" 2>/dev/null || git checkout "${1:-}"
         echo -e "\033[32m✨ 已进入分支: $1\033[0m"
     fi
 }
@@ -124,7 +133,7 @@ _branch_mgr() {
 _rename_branch() {
     _check_git_repo || return 1
     local old_br=$(git branch --show-current)
-    local new_br="$1"
+    local new_br="${1:-}"
 
     if [ -z "$new_br" ]; then
         echo -e "\033[36m当前分支: \033[1m$old_br\033[0m"

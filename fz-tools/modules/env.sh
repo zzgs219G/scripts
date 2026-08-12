@@ -15,7 +15,7 @@
 
 # 版本号比较（支持 v1.2.3 / 4.0 格式），a>b 返回 0
 _fz_ver_gt() {
-    local a="$1" b="$2"
+    local a="${1:-}" b="${2:-}"
     a="${a#v}"; b="${b#v}"
     local ia ib
     IFS='.' read -ra ia <<< "$a"
@@ -85,6 +85,11 @@ _setup_env() {
     git config --global color.ui           auto
 
     echo -e "\n\033[32m✨ 环境配置完成！\033[0m"
+
+    # v5.0：书签初始化（若书签为空，引导创建 / 迁移旧 FZ_BASE）
+    echo ""
+    _bm_init
+
     echo -e "  下一步: \033[36mlogin\033[0m 登录 GitHub"
     echo -e "  AI commit: 执行 \033[36maikey\033[0m 配置\n"
 }

@@ -73,6 +73,17 @@ print(data['content'][0]['text'].strip())
 # ══════════════════════════════════════════
 _p_push() {
     _check_git_repo || return 1
+
+    # v5.0 前置检查：是否在书签项目内（计划书 6.2）
+    if ! _bm_current >/dev/null; then
+        echo -e "\033[33m⚠️ 当前目录不在任何书签项目内\033[0m"
+        read -p "是否继续推送？(y/n): " _cont
+        if [[ "$_cont" != "y" && "$_cont" != "Y" ]]; then
+            echo -e "\033[90m已取消\033[0m"
+            return 1
+        fi
+    fi
+
     _git_auto_ignore
 
     local b_name=$(git branch --show-current)
@@ -88,7 +99,9 @@ _p_push() {
         ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
         if [ "$ahead" -gt 0 ]; then
             echo -e "\033[33m📤 检测到 $ahead 个未推送的提交，直接推送...\033[0m"
-            git push origin "$b_name"
+            if git push origin "$b_name"; then
+                echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m$(git remote get-url origin 2>/dev/null || echo origin)\033[0m]\033[0m"
+            fi
         else
             echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
         fi
@@ -118,14 +131,14 @@ _p_push() {
     local skip_ci_flag=""
 
     # 如果第一个参数输入的是 skip，就做好标记，并把变量换成第 2 个参数
-    if [ "$1" = "skip" ]; then
+    if [ "${1:-}" = "skip" ]; then
         skip_ci_flag=" [skip ci]"
-        set -- "$2"
+        set -- "${2:-}"
     fi
 
     local msg=""
-    if [ -n "$1" ]; then
-        msg="$1"
+    if [ -n "${1:-}" ]; then
+        msg="${1:-}"
     elif [ -n "$FZ_AI_KEY" ] && command -v curl &>/dev/null; then
         msg=$(_ai_commit_msg)
         if [ -n "$msg" ]; then
@@ -152,7 +165,9 @@ _p_push() {
     fi
 
     if [ "$push_ok" -eq 1 ]; then
-        echo -e "\033[32m✅ 推送成功！${change_count} 个文件变更\033[0m"
+        local remote_name
+        remote_name=$(git remote get-url origin 2>/dev/null || echo "origin")
+        echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m${remote_name}\033[0m\033[32m] | ${change_count} 个文件变更\033[0m"
         if [ -n "$fz_file" ]; then
             echo -e "\033[35m💡 远程已更新至 v${next_version}，执行 \033[1mup\033[0m\033[35m 可更新本地环境\033[0m"
         fi

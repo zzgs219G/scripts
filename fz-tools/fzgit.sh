@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #  ════════════════════════════════════════════════════════════
-#  《焚诀·Git 工作流》 主入口  v4.0（模块化重构版）
+#  《焚诀·Git 工作流》 主入口  v5.0（智能书签·零硬编码版）
 # ════════════════════════════════════════════════════════════
 #  安装（新方式，克隆后写入 ~/.bashrc）：
 #     git clone https://github.com/zzgs219G/scripts.git
@@ -11,15 +11,18 @@
 #  本文件只负责四件事：
 #    1. 环境变量（FZ_VERSION / FZ_BASE / FZ_AI_KEY / FZ_MAIN / FZ_TOOLS_DIR）
 #    2. 路径自适应 + 模块加载（core.sh + modules/*.sh）
-#    3. 全部别名注册（与原版完全一致）
-#    4. 帮助菜单（与原版完全一致）
+#    3. 全部别名注册
+#    4. 帮助菜单
 #  功能函数已拆分至各模块文件，请勿在本文件新增函数。
+#  ⚠️ v5.0 迁移策略：FZ_BASE 仅保留用于 burn.sh 输出备用，
+#     导航/克隆/拉取全部改为书签系统（~/.fz_bookmarks）。
 # ════════════════════════════════════════════════════════════
 
-# ── 版本号（v4.0 模块化重构版）──
-FZ_VERSION="4.0"
+# ── 版本号（v5.0 智能书签·零硬编码版）──
+FZ_VERSION="5.0"
 
-# ── FZ_BASE：工作台路径发现（与原版逻辑一致）──
+# ── FZ_BASE：仅作 burn.sh 输出备用（v5.0 不再参与导航）──
+#     首次 setup/c 时自动导入为默认书签（见 modules/bookmark.sh _bm_init）
 if [ -d "/storage/emulated/0/常用" ]; then
     _FOUND_PATH=$(find /storage/emulated/0/常用/ -maxdepth 2 -type d -name "*克隆仓库*" 2>/dev/null | head -n 1)
     export FZ_BASE="${_FOUND_PATH:-/storage/emulated/0/常用/工作台😡/克隆仓库}"
@@ -45,7 +48,7 @@ else
     echo -e "\033[31m❌ [焚诀] 缺少文件: ${_FZ_DIR}/core.sh\033[0m" >&2
 fi
 
-for _fz_mod in env nav branch push merge view stash fix tag burn; do
+for _fz_mod in env bookmark nav branch push merge view stash fix tag burn clone pullall; do
     _fz_mod_file="${_FZ_DIR}/modules/${_fz_mod}.sh"
     if [ -f "${_fz_mod_file}" ]; then
         source "${_fz_mod_file}"
@@ -56,7 +59,7 @@ done
 unset _fz_mod _fz_mod_file _FZ_SRC _FZ_DIR
 
 # ══════════════════════════════════════════
-#  🔤  别名注册（与原版完全一致）
+#  🔤  别名注册（v5.0）
 # ══════════════════════════════════════════
 alias up='_update_script'
 alias setup='_setup_env'
@@ -65,6 +68,7 @@ alias repo='_create_repo'
 alias remote='_remote_mgr'
 alias trust='_trust_dir'
 alias aikey='_ai_setup'
+alias bookmark='_bookmark_mgr'
 alias c='_c_jump'
 alias lsp='_ls_projects'
 alias b='_branch_mgr'
@@ -86,7 +90,7 @@ alias cl='_clone_repo'
 alias pullall='_pull_all'
 alias info='_repo_info'
 alias rls='_rls_remote'
-alias st='echo -e "📍 分支: \033[1;33m$(git branch --show-current 2>/dev/null || echo "非Git目录")\033[0m | 变更: \033[33m$(git status -s 2>/dev/null | wc -l | tr -d " ")\033[0m 个文件"'
+alias st='_st_status'
 alias pull='echo -e "\033[34m📥 同步中...\033[0m" && git pull'
 alias undo='git restore . && echo -e "\033[33m↩️ 已撤销工作区所有未提交修改\033[0m"'
 alias unstage='git restore --staged . && echo -e "\033[33m↩️ 已取消所有暂存\033[0m"'
@@ -119,12 +123,15 @@ alias h='echo -e "\033[1;36m
   \033[36mtrust\033[0m    信任当前目录（safe.directory）
   \033[36maikey\033[0m    配置 AI commit key（Anthropic）
 
-\033[1;33m── 📂 项目导航 ──────────────────────────\033[0m
-  \033[36mlsp\033[0m       工作台所有项目状态总览
-  \033[36mc\033[0m         列表选择/编号瞬移
-  \033[36mc <名字>\033[0m   关键字模糊直达
-  \033[36mcl <url>\033[0m   克隆（支持 用户名/仓库名）
-  \033[36mpullall\033[0m   一键拉取所有项目
+\033[1;33m── 📂 项目导航（书签制）──────────────────\033[0m
+  \033[36mbookmark\033[0m  管理书签（增删改查）
+  \033[36mlsp\033[0m       所有书签项目状态总览
+  \033[36mc\033[0m         书签→项目→操作 交互导航
+  \033[36mc <名字>\033[0m   书签/项目关键字直达
+  \033[36mcl\033[0m         交互式克隆（gh 仓库列表选择）
+  \033[36mcl <仓库>\033[0m  直接克隆到当前目录/指定书签
+  \033[36mpullall\033[0m   批量拉取所有书签项目
+  \033[36mpullall <书签>\033[0m 只更新指定书签
 
 \033[1;33m── 🌿 分支操作 ──────────────────────────\033[0m
   \033[36mb all\033[0m      打捞全部远程分支并本地镜像

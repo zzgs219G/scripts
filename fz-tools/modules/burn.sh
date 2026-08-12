@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════
-#  焚诀·Git 工作流 — burn.sh（炼化模块）
+#  焚诀·Git 工作流 — burn.sh（炼化模块）v5.0
 #  职责：遍历项目源码文件，按规则过滤并拼接为单一文本，
-#        同时复制到工作台与剪贴板（termux-clipboard-set）
+#        复制到剪贴板（termux-clipboard-set）
+#  ⚠️ v5.0 输出路径：当前 Git 项目根目录；否则第一个书签目录；
+#     兜底 FZ_BASE / HOME（计划书 6.4）
 #  包含函数：_f_burn
 #  对应别名：f
 #  由 fz-tools/fzgit.sh 自动加载
@@ -12,18 +14,34 @@
 #  ⚡  炼化引擎（f）
 # ══════════════════════════════════════════
 _f_burn() {
-    local MODULE="$1"
+    local MODULE="${1:-}"
 
     local TMP_FILE
     TMP_FILE=$(mktemp "${HOME}/fz_burn_tmp_XXXXXX.txt")
     local PROJECT_NAME
-PROJECT_NAME=$(basename "$PWD")
+    PROJECT_NAME=$(basename "$PWD")
 
-local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
-    local OUT_FILE="${HOME}/${OUT_NAME}"
+    # ── v5.0 输出路径：当前 Git 项目根 > 第一个书签目录 > FZ_BASE > HOME ──
+    local OUT_DIR=""
+    if git rev-parse --is-inside-work-tree &>/dev/null; then
+        OUT_DIR=$(git rev-parse --show-toplevel 2>/dev/null)
+    fi
+    if [ -z "$OUT_DIR" ]; then
+        _bm_load
+        if [ ${#FZ_BOOKMARKS[@]} -gt 0 ]; then
+            OUT_DIR="${FZ_BOOKMARKS[0]#*|}"
+        fi
+    fi
+    if [ -z "$OUT_DIR" ] || [ ! -d "$OUT_DIR" ]; then
+        OUT_DIR="${FZ_BASE:-${HOME}}"
+    fi
+
+    local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
+    local OUT_FILE="${OUT_DIR}/${OUT_NAME}"
 
     echo -e "\033[33m⚡ 炼化启动...\033[0m"
     echo -e "\033[90m📁 项目: $(basename "$PWD") | 过滤模块: ${MODULE:-无}\033[0m"
+    echo -e "\033[90m📂 输出目录: ${OUT_DIR}\033[0m"
 
     printf "/*\n * Project : %s\n * Module  : %s\n * Author  : %s\n * Date    : %s\n * Branch  : %s\n */\n\n" \
         "$(basename "$PWD")" \
@@ -79,10 +97,6 @@ local OUT_NAME="code_${PROJECT_NAME}${MODULE:+_${MODULE}}.txt"
     [ "$skip_count" -gt 0 ] && echo -e "  ⏭️  跳过   : \033[90m${skip_count} 个过大文件\033[0m"
     echo -e "  📦 大小   : \033[33m${out_kb} KB\033[0m"
     echo -e "  📍 路径   : \033[36m${OUT_FILE}\033[0m"
-
-    if [ -d "${FZ_BASE}" ] && cp "$OUT_FILE" "${FZ_BASE}/${OUT_NAME}" 2>/dev/null; then
-        echo -e "  📂 工作台 : \033[36m${FZ_BASE}/${OUT_NAME}\033[0m"
-    fi
 
     if command -v termux-clipboard-set &>/dev/null; then
         echo "$OUT_FILE" | termux-clipboard-set
