@@ -1,0 +1,32 @@
+default_model = "deepseek-v4-flash"
+
+[agent]
+editMode = "yolo"
+reasoning_language = "auto"
+
+[tools]
+bash_timeout_seconds = 180
+
+[permissions]
+mode = "allow"
+deny = [
+"Bash(rm -rf *)",
+"Bash(git push *)",
+"Bash(git reset --hard *)",
+"Bash(sudo *)",
+"Bash(dd *)"
+]
+allow = [
+"Bash(git:*)",
+"Bash(bash:*)",
+"Bash(cd:*)",
+"Bash(ls:*)",
+"Bash(echo:*)"
+]
+
+[sandbox]
+# 关键修改：关闭强制沙箱，适配Termux
+bash = "off"
+allow_write = ["/tmp"]
+forbid_read = ["${HOME}/.ssh"]
+network = true
