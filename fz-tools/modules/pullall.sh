@@ -100,3 +100,49 @@ _pull_all() {
     fi
     return 0
 }
+
+# ══════════════════════════════════════════
+#  📥  单仓库智能拉取（pull）v5.1 新增
+#  由 fzgit.sh 的 pull 别名调用（原为 echo + git pull 简单别名）
+#  特性：显示分支 → 检查上游跟踪 → 脏工作区确认 →
+#        pull 后显示新增提交 / 失败提示 fix
+# ══════════════════════════════════════════
+_pull_now() {
+    _check_git_repo || return 1
+    local b_name
+    b_name=$(git branch --show-current 2>/dev/null)
+    local upstream
+    upstream=$(git rev-parse --abbrev-ref "@{u}" 2>/dev/null)
+
+    echo -e "\033[34m📥 正在同步分支: \033[1m${b_name}\033[0m"
+    if [ -z "$upstream" ]; then
+        echo -e "\033[33m⚠️ 当前分支没有上游（remote）跟踪，无法直接 pull\033[0m"
+        echo -e "   💡 用 \033[36mp\033[0m 推送一次即可建立跟踪，或执行 \033[36mgsync\033[0m 安全同步"
+        return 1
+    fi
+
+    if [ -n "$(git status -s 2>/dev/null)" ]; then
+        echo -e "\033[33m⚠️ 存在未提交变更，pull 前建议先 \033[36msave\033[0m 暂存\033[0m"
+        read -p "仍要继续 pull？(y/n): " cont
+        if [[ "$cont" != "y" && "$cont" != "Y" ]]; then
+            echo -e "\033[90m已取消\033[0m"
+            return 1
+        fi
+    fi
+
+    local before after
+    before=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+    if ! git pull --quiet 2>&1; then
+        echo -e "\033[31m❌ 拉取失败！可能有冲突，执行 \033[36mfix\033[0m 引导解决\033[0m"
+        return 1
+    fi
+    after=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+    local got=$((after - before))
+    if [ "$got" -gt 0 ]; then
+        echo -e "\033[32m✅ 拉取完成，新增 \033[1m${got}\033[0m 个提交\033[0m"
+        git log --oneline "-${got}" 2>/dev/null | sed 's/^/   /'
+    else
+        echo -e "\033[32m✅ 已是最新\033[0m"
+    fi
+    return 0
+}

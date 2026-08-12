@@ -21,6 +21,16 @@ _ok_merge() {
         return 1
     fi
 
+    # v5.1：发布前检查工作区干净（避免 checkout 静默失败）
+    if [ -n "$(git status -s 2>/dev/null)" ]; then
+        echo -e "\033[33m⚠️ 工作区有未提交变更，建议先 \033[36msave\033[0m 暂存再发布\033[0m"
+        read -p "仍要继续？(y/n): " dirty_ok
+        if [[ "$dirty_ok" != "y" && "$dirty_ok" != "Y" ]]; then
+            echo -e "\033[90m已取消\033[0m"
+            return 1
+        fi
+    fi
+
     local msg="🔀 merge: ${src} → ${dst}"
     if [ "$opt" = "skip" ]; then
         msg="🔀 merge: ${src} → ${dst} [skip ci]"
@@ -38,19 +48,27 @@ _ok_merge() {
 
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         _git_auto_ignore
-        git checkout "$dst" && \
-        git merge "$src" --no-ff -m "${msg}" && \
-        git push origin "$dst"
 
-        if [ $? -eq 0 ]; then
-            echo -e "\033[32m✅ 功德圆满！已发布至 ${dst}\033[0m"
-            git checkout "$src"
-            read -p "顺手打版本标签？(如 v1.0.0，回车跳过): " tag_ver
-            [ -n "$tag_ver" ] && _tag_mgr "$tag_ver" "release $tag_ver"
-        else
-            echo -e "\033[31m❌ 合并失败！执行 'fix' 查看冲突\033[0m"
-            git checkout "$src"
+        # v5.1：分步检查（修复原实现只看最后 push 结果、merge 失败误报的问题）
+        if ! git checkout "$dst"; then
+            echo -e "\033[31m❌ 无法切换到 ${dst}（存在未提交变更，请先 save/pop 处理）\033[0m"
+            return 1
         fi
+        if ! git merge "$src" --no-ff -m "${msg}"; then
+            echo -e "\033[31m❌ 合并冲突！执行 'fix' 查看冲突\033[0m"
+            git checkout "$src"
+            return 1
+        fi
+        if ! git push origin "$dst"; then
+            echo -e "\033[31m❌ 合并成功但推送失败！请检查网络后手动执行: git push origin ${dst}\033[0m"
+            git checkout "$src"
+            return 1
+        fi
+
+        echo -e "\033[32m✅ 功德圆满！已发布至 ${dst}\033[0m"
+        git checkout "$src"
+        read -p "顺手打版本标签？(如 v1.0.0，回车跳过): " tag_ver
+        [ -n "$tag_ver" ] && _tag_mgr "$tag_ver" "release $tag_ver"
     else
         echo -e "\033[31m⛔ 已取消\033[0m"
     fi

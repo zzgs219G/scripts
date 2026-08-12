@@ -47,9 +47,7 @@ _c_jump() {
                 if [[ "${dn,,}" == *"${keyword,,}"* ]]; then
                     cd "$d" || return 1
                     echo -e "\033[32m🚀 瞬移成功: \033[1m${dn}\033[0m \033[90m(${d})\033[0m"
-                    local cur_br
-                    cur_br=$(git branch --show-current 2>/dev/null)
-                    [ -n "$cur_br" ] && echo -e "  🌿 当前分支: \033[33m${cur_br}\033[0m"
+                    _git_status_summary
                     return 0
                 fi
             done
@@ -62,7 +60,7 @@ _c_jump() {
     while true; do
         echo -e "\n\033[1;36m📂 工作台书签（可用 bookmark 管理）：\033[0m"
         _bm_list || { echo ""; }
-        echo -e "  \033[33m[+]/[3]\033[0m ➕ 添加新书签"
+        echo -e "  \033[33m[+]\033[0m ➕ 添加新书签"
         echo -e "  \033[33m[q]\033[0m 退出"
         read -p "请选择编号或操作: " choice
 
@@ -72,14 +70,6 @@ _c_jump() {
                 ;;
             +|add|new)
                 _c_add_bookmark
-                ;;
-            3)
-                if [ ${#FZ_BOOKMARKS[@]} -lt 3 ]; then
-                    _c_add_bookmark
-                else
-                    _c_enter_bookmark 3
-                    [ $? -eq 0 ] && return 0
-                fi
                 ;;
             *)
                 if [[ "$choice" =~ ^[0-9]+$ ]]; then
@@ -211,9 +201,7 @@ _c_project_ops() {
             1)
                 cd "$proj_path" || { echo -e "\033[31m❌ 无法进入: $proj_path\033[0m"; return 1; }
                 echo -e "\033[32m🚀 已进入项目: \033[1m${proj}\033[0m"
-                local cur_br
-                cur_br=$(git branch --show-current 2>/dev/null)
-                [ -n "$cur_br" ] && echo -e "  🌿 当前分支: \033[33m${cur_br}\033[0m"
+                _git_status_summary
                 return 0
                 ;;
             2)
@@ -432,6 +420,24 @@ _st_status() {
         line+="分支: \033[1;33m${cur}\033[0m | 变更: \033[33m${changes}\033[0m 个文件"
     else
         line+="分支: \033[1;33m非Git目录\033[0m"
+        echo -e "$line"
+        return 0
+    fi
+
+    # v5.1：增加领先/落后同步状态（计划书 6.5 增强）
+    local ahead behind
+    ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
+    behind=$(git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)
+    if [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
+        line+=" | 📤${ahead} 📥${behind} \033[1;34m🔵分叉\033[0m"
+    elif [ "$ahead" -gt 0 ]; then
+        line+=" | 📤 领先 \033[33m${ahead}\033[0m 个提交"
+    elif [ "$behind" -gt 0 ]; then
+        line+=" | 📥 落后 \033[31m${behind}\033[0m 个提交"
     fi
     echo -e "$line"
+
+    local last_commit
+    last_commit=$(git log -1 --format="%s (%cr)" 2>/dev/null)
+    [ -n "$last_commit" ] && echo -e "  \033[90m📌 ${last_commit}\033[0m"
 }

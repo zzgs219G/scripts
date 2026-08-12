@@ -89,11 +89,13 @@ _f_burn() {
     cp "$TMP_FILE" "$OUT_FILE"
     rm -f "$TMP_FILE"
 
-    local out_kb
+    local out_kb out_lines
     out_kb=$(( $(wc -c < "$OUT_FILE" 2>/dev/null || echo 0) / 1024 ))
+    out_lines=$(wc -l < "$OUT_FILE" 2>/dev/null || echo 0)
 
     echo -e "\r\033[32m✨ 炼化完成！\033[0m"
     echo -e "  📄 已处理 : \033[33m${count}\033[0m 个文件"
+    echo -e "  📏 行数   : \033[33m${out_lines}\033[0m 行"
     [ "$skip_count" -gt 0 ] && echo -e "  ⏭️  跳过   : \033[90m${skip_count} 个过大文件\033[0m"
     echo -e "  📦 大小   : \033[33m${out_kb} KB\033[0m"
     echo -e "  📍 路径   : \033[36m${OUT_FILE}\033[0m"

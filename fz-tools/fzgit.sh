@@ -18,8 +18,8 @@
 #     导航/克隆/拉取全部改为书签系统（~/.fz_bookmarks）。
 # ════════════════════════════════════════════════════════════
 
-# ── 版本号（v5.0 智能书签·零硬编码版）──
-FZ_VERSION="5.0"
+# ── 版本号（v5.1 智能迭代：体验增强 + P0 修复）──
+FZ_VERSION="5.1"
 
 # ── FZ_BASE：仅作 burn.sh 输出备用（v5.0 不再参与导航）──
 #     首次 setup/c 时自动导入为默认书签（见 modules/bookmark.sh _bm_init）
@@ -91,7 +91,7 @@ alias pullall='_pull_all'
 alias info='_repo_info'
 alias rls='_rls_remote'
 alias st='_st_status'
-alias pull='echo -e "\033[34m📥 同步中...\033[0m" && git pull'
+alias pull='_pull_now'
 alias undo='git restore . && echo -e "\033[33m↩️ 已撤销工作区所有未提交修改\033[0m"'
 alias unstage='git restore --staged . && echo -e "\033[33m↩️ 已取消所有暂存\033[0m"'
 

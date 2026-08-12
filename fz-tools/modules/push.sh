@@ -119,9 +119,13 @@ _p_push() {
     fi
 
     if [ -n "$fz_file" ]; then
+        # v5.1：基于当前 FZ_VERSION 主版本递增（修复 v5.0 下写死 4. 的降级 bug）
+        local cur_ver="${FZ_VERSION:-5.0}"
+        local major_ver="${cur_ver%%.*}"
+        major_ver="${major_ver:-5}"
         local commit_count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
         next_sub_ver=$((commit_count + 1))
-        next_version="4.${next_sub_ver}"
+        next_version="${major_ver}.${next_sub_ver}"
         sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" "$fz_file"
         echo -e "\033[35m✨ [焚诀算法阵] 历史提交 ${commit_count} 次，正在以 v${next_version} 准备上架...\033[0m"
     fi
@@ -148,7 +152,12 @@ _p_push() {
         fi
     fi
 
-    [ -z "$msg" ] && msg="⚡ update: $(date '+%m-%d %H:%M')"
+    # v5.1：无参数时提供默认备注确认，避免"⚡ update"直接提交不可改
+    if [ -z "$msg" ]; then
+        local def_msg="⚡ update: $(date '+%m-%d %H:%M')"
+        read -p "备注（回车使用默认: ${def_msg}）: " custom_msg
+        msg="${custom_msg:-$def_msg}"
+    fi
 
     echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}${skip_ci_flag}\033[0m"
 

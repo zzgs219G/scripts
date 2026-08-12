@@ -81,12 +81,17 @@ _branch_mgr() {
             git checkout dev 2>/dev/null || git checkout -b dev origin/dev 2>/dev/null || git checkout -b dev
             git branch --set-upstream-to=origin/dev dev &>/dev/null
             echo -e "\033[32m✨ 已进入 dev 实验室\033[0m"
+            _git_status_summary
         elif [ "$choice" = "q" ]; then
             return 0
         elif [ "$choice" = "$i" ]; then
             read -p "新分支名: " new_br
-            [ -n "$new_br" ] && git checkout -b "$new_br" && \
-                echo -e "\033[32m✨ 已创建并进入: $new_br\033[0m"
+            if [ -n "$new_br" ]; then
+                git checkout -b "$new_br" && {
+                    echo -e "\033[32m✨ 已创建并进入: $new_br\033[0m"
+                    _git_status_summary
+                }
+            fi
         else
             if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
                 echo -e "\033[31m❌ 请输入有效数字\033[0m"
@@ -94,8 +99,12 @@ _branch_mgr() {
             fi
             local target_br="${branches[$((choice-1))]}"
             if [ -n "$target_br" ]; then
-                git checkout "$target_br"
-                echo -e "\033[32m✨ 已切换到: $target_br\033[0m"
+                if git checkout "$target_br"; then
+                    echo -e "\033[32m✨ 已切换到: $target_br\033[0m"
+                    _git_status_summary
+                else
+                    echo -e "\033[31m❌ 切换失败（可能有未提交变更冲突）\033[0m"
+                fi
             else
                 echo -e "\033[31m❌ 编号无效\033[0m"
             fi
