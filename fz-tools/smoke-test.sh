@@ -114,6 +114,9 @@ assert "T3a 阶段1→2 [0] 进入书签根目录" [ "$PWD" = "$BM1" ]
 _c_jump <<< $'1\n1\n1\n' >/dev/null 2>&1
 assert "T3b 阶段3 [1] 进入项目" [ "$PWD" = "$BM1/projA" ]
 
+_c_jump <<< $'1\n1\n\n' >/dev/null 2>&1
+assert "T3f 阶段3 回车默认=1 进入项目" [ "$PWD" = "$BM1/projA" ]
+
 _c_jump "主工作台" <<< $'0\n' >/dev/null 2>&1
 assert "T3c 书签关键字直达阶段2" [ "$PWD" = "$BM1" ]
 
@@ -186,7 +189,7 @@ echo "══════════ T7 炼化输出路径（计划书 6.4）═
 
 cd "$BM1/projB"
 _f_burn >/dev/null 2>&1
-assert "T7a 炼化输出到当前项目根" [ -f "$BM1/projB/code_projB.txt" ]
+assert "T7a 炼化输出到项目上一级目录" [ -f "$BM1/code_projB.txt" ]
 
 # ══════════════════════════════════════════
 echo ""
@@ -203,7 +206,7 @@ printf "n\n" | _p_push >/dev/null 2>&1; rc=$?
 assert "T8b 非书签内推送前置检查拦截" [ "$rc" -ne 0 ]
 
 cd "$BM1/projB"
-rm -f code_projB.txt   # 清理 T7 炼化产物，恢复"无变更"场景
+rm -f "$BM1/code_projB.txt"   # 清理 T7 炼化产物，恢复"无变更"场景
 out=$(_p_push 2>&1)
 assert "T8c 书签内无变更提示" grep -q "没有任何变更" <<<"$out"
 

@@ -3,8 +3,8 @@
 #  焚诀·Git 工作流 — burn.sh（炼化模块）v5.0
 #  职责：遍历项目源码文件，按规则过滤并拼接为单一文本，
 #        复制到剪贴板（termux-clipboard-set）
-#  ⚠️ v5.0 输出路径：当前 Git 项目根目录；否则第一个书签目录；
-#     兜底 FZ_BASE / HOME（计划书 6.4）
+#  ⚠️ 输出路径：当前 Git 项目根目录的上一级（避免污染项目）；
+#     否则第一个书签目录；兜底 FZ_BASE / HOME（计划书 6.4）
 #  包含函数：_f_burn
 #  对应别名：f
 #  由 fz-tools/fzgit.sh 自动加载
@@ -21,10 +21,12 @@ _f_burn() {
     local PROJECT_NAME
     PROJECT_NAME=$(basename "$PWD")
 
-    # ── v5.0 输出路径：当前 Git 项目根 > 第一个书签目录 > FZ_BASE > HOME ──
+    # ── 输出路径：当前 Git 项目根目录的上一级 > 第一个书签目录 > FZ_BASE > HOME ──
+    #    （a/b 项目 → 打包到 a/，避免污染项目内部源码）
     local OUT_DIR=""
     if git rev-parse --is-inside-work-tree &>/dev/null; then
         OUT_DIR=$(git rev-parse --show-toplevel 2>/dev/null)
+        OUT_DIR=$(dirname "$OUT_DIR")
     fi
     if [ -z "$OUT_DIR" ]; then
         _bm_load

@@ -191,14 +191,14 @@ _c_project_ops() {
     while true; do
         echo -e "\n\033[1;36m选中项目：\033[1m${proj}\033[0m"
         echo -e "你想做什么？"
-        echo -e "  \033[33m[1]\033[0m 进入该项目（cd 并结束）"
+        echo -e "  \033[33m[1]\033[0m 进入该项目（回车默认）"
         echo -e "  \033[33m[2]\033[0m 📦 移动本项目到其他书签（剪切）"
         echo -e "  \033[33m[3]\033[0m 📋 复制本项目到其他书签（保留原件）"
         echo -e "  \033[33m[q]\033[0m 取消"
-        read -p "请选择: " op
+        read -p "请选择 (回车=1): " op
 
         case "$op" in
-            1)
+            1|"")
                 cd "$proj_path" || { echo -e "\033[31m❌ 无法进入: $proj_path\033[0m"; return 1; }
                 echo -e "\033[32m🚀 已进入项目: \033[1m${proj}\033[0m"
                 _git_status_summary
