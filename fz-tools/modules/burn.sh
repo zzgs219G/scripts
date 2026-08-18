@@ -9,7 +9,8 @@
 #    f <关键词>      定向模式：只打包路径包含关键词的文件（如 f nav）
 #    f -h / --help   帮助
 #  ⚠️ 大文件（>64KB）不丢弃，照常完整打包，并在注释中标注路径与大小
-#  🧹 kotlin(.kt/.kts) 文件自动过滤注释（仅影响打包 txt，源文件不受任何修改）
+#  🧹 kotlin(.kt/.kts) 文件自动过滤：注释（行/块/KDoc）+ import 导包
+#     被过滤的 import 去重为「依赖清单」附在打包末尾（仅影响打包 txt，源文件不受任何修改）
 #  输出路径：当前 Git 项目根目录的上一级 > 第一个书签目录 > FZ_BASE > HOME
 #  包含函数：_f_burn  _f_burn_help  _f_burn_tree  _f_burn_clip  _f_burn_scan  _f_burn_strip_kt_comments
 #  对应别名：f
@@ -91,7 +92,9 @@ _f_burn() {
         echo
     } > "$TMP_FILE"
 
-    local count=0 big_count=0
+    local count=0 big_count=0 import_n=0
+    local IMPORT_LOG
+    IMPORT_LOG=$(mktemp "${HOME}/fz_burn_imports_XXXXXX.txt")
 
     while IFS= read -r file; do
         [ -f "$file" ] || continue
@@ -107,8 +110,8 @@ _f_burn() {
 
         case "$file" in
             *.kt|*.kts)
-                # kotlin 文件：额外过滤注释（行注释/块注释/KDoc），其余语言原样打包
-                _f_burn_strip_kt_comments < "$file" >> "$TMP_FILE"
+                # kotlin 文件：过滤注释（行注释/块注释/KDoc）+ 过滤 import（写入依赖清单），其余语言原样打包
+                _f_burn_strip_kt_comments "$IMPORT_LOG" < "$file" >> "$TMP_FILE"
                 ;;
             *)
                 sed -e 's/^[[:space:]]*//' \
@@ -123,8 +126,17 @@ _f_burn() {
 
     done < <(_f_burn_scan "$MODE" "$MODULE")
 
+    # ── 追加 Kotlin 依赖汇总：被过滤的 import 去重后附在末尾，供 AI 参考 ──
+    if [ -s "$IMPORT_LOG" ]; then
+        {
+            printf "\n/* ── 依赖汇总：以下 Kotlin import 已从正文过滤，仅作依赖参考 ── */\n"
+            sort -u "$IMPORT_LOG" | sed 's|^|// |'
+        } >> "$TMP_FILE"
+        import_n=$(sort -u "$IMPORT_LOG" | wc -l | tr -d '[:space:]')
+    fi
+
     cp "$TMP_FILE" "$OUT_FILE"
-    rm -f "$TMP_FILE"
+    rm -f "$TMP_FILE" "$IMPORT_LOG"
 
     local out_kb out_lines
     out_kb=$(( $(wc -c < "$OUT_FILE" 2>/dev/null || echo 0) / 1024 ))
@@ -134,6 +146,7 @@ _f_burn() {
     echo -e "  📄 已处理 : \033[33m${count}\033[0m 个文件"
     echo -e "  📏 行数   : \033[33m${out_lines}\033[0m 行"
     [ "$big_count" -gt 0 ] && echo -e "  ⚠️  大文件 : \033[33m${big_count}\033[0m 个（>${_F_BURN_BIG_KB}KB，已完整打包并标注）"
+    [ "$import_n" -gt 0 ] && echo -e "  🔗 依赖清单 : \033[33m${import_n}\033[0m 条 import（已过滤，附在末尾）"
     echo -e "  📦 大小   : \033[33m${out_kb} KB\033[0m"
     echo -e "  📍 路径   : \033[36m${OUT_FILE}\033[0m"
 
@@ -142,13 +155,15 @@ _f_burn() {
     fi
 }
 
-# ── kotlin 注释过滤（仅 .kt/.kts 使用，源文件不落盘、不修改）──
+# ── kotlin 注释 + import 过滤（仅 .kt/.kts 使用，源文件不落盘、不修改）──
 # 逐字符状态机：过滤行注释 //（含行内）、块注释 /* */（含嵌套与 KDoc），
 # 但字符串（双引号/单引号/三引号原始字符串）内的 //、/* 原样保留，不误伤 URL。
+# 注释过滤后，行首为 "import" 的顶层语句一并过滤，写入依赖清单（参数 $1，可选）。
 # 输出行为与原 sed 对齐：去首尾空白 + 删空行。
 # 状态: 0=代码 1=双引号串 2=单引号字符 3=三引号串 4=块注释(depth 计嵌套)
 _f_burn_strip_kt_comments() {
-    awk '
+    local log="${1:-}"
+    awk -v logfile="$log" '
     BEGIN { state = 0; depth = 0 }
     {
         out = ""
@@ -199,7 +214,15 @@ _f_burn_strip_kt_comments() {
             }
         }
         gsub(/^[ \t]+|[ \t]+$/, "", out)
-        if (out != "") print out
+        if (out == "") next
+        # import 过滤：Kotlin 的 import 只能出现在顶层，且 import 是保留关键字，
+        # 行首 "import" + 空白 即为 import 语句（含 import a.b.* / import a as b）。
+        # 多行 import 在 Kotlin 规范上不允许，按单行处理即可。
+        if (out ~ /^import([ \t]+|$)/) {
+            if (logfile != "") print out >> logfile
+            next
+        }
+        print out
     }'
 }
 
@@ -266,6 +289,7 @@ _f_burn_help() {
  f -h           显示本帮助
 ────────────────────────────────────────
  🧹 kotlin(.kt/.kts) 注释自动过滤（含行内注释，字符串/URL 不误伤）
+ 🧹 kotlin(.kt/.kts) import 自动过滤，去重「依赖清单」附在打包末尾（AI 参考）
  📄 文件头只保留 // 📄 [路径]（大文件另标注大小）
  大文件（>${_F_BURN_BIG_KB}KB）不丢弃，会完整打包并标注路径与大小
  输出路径: 项目上一级 > 第一个书签 > FZ_BASE > HOME
