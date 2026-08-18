@@ -4,13 +4,14 @@
 #  职责：把项目源码按规则过滤后拼接为一个 txt 文件，
 #        供用户复制给对话框 AI 做全项目分析 / 生成计划书
 #  用法：
-#    f               全量模式：打包全部源码（滤掉矢量图/密钥/缓存/锁文件）
+#    f               全量模式：打包全部源码（滤掉矢量图/密钥/缓存/锁文件/资源 json-xml）
 #    f -d / --diff   增量模式：只打包未提交的改动 + 未跟踪的新文件
 #    f <关键词>      定向模式：只打包路径包含关键词的文件（如 f nav）
 #    f -h / --help   帮助
 #  ⚠️ 大文件（>64KB）不丢弃，照常完整打包，并在注释中标注路径与大小
+#  🧹 kotlin(.kt/.kts) 文件自动过滤注释（仅影响打包 txt，源文件不受任何修改）
 #  输出路径：当前 Git 项目根目录的上一级 > 第一个书签目录 > FZ_BASE > HOME
-#  包含函数：_f_burn  _f_burn_help  _f_burn_tree  _f_burn_clip  _f_burn_scan
+#  包含函数：_f_burn  _f_burn_help  _f_burn_tree  _f_burn_clip  _f_burn_scan  _f_burn_strip_kt_comments
 #  对应别名：f
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
@@ -22,9 +23,9 @@ _F_BURN_EXT='html|htm|js|jsx|ts|tsx|vue|astro|svelte|css|scss|sass|less|json|md|
 #  构建/依赖目录: .git/ .gradle/ .idea/ build/ node_modules/ dist/ bin/ out/
 #  锁与压缩产物:   *lock*  *.min.js  *.min.css
 #  敏感凭据:       release.properties *.keystore *.jks *.key *.pem google-services.json
-#  体积杀手:       res/drawable*/*.xml（矢量图坐标） res/mipmap*/（图标）
-#                  assets/*.json|bin|dat|wasm|txt（大配置/字库/离线包）
-_F_BURN_BLACK='(^|/)(\.git|\.gradle|\.idea|build|node_modules|dist|bin|out)/|.*lock.*|\.min\.(js|css)$|release\.properties$|\.(keystore|jks|key|pem)$|google-services\.json$|(^|/)res/drawable[^/]*/.*\.xml$|(^|/)res/mipmap[^/]*/|(^|/)assets/.*\.(json|bin|dat|wasm|txt)$'
+#  资源文件瘦身:   res/ 与 assets/ 目录下所有 json/xml 不打包（Android 资源/矢量图/离线数据）
+#                  AndroidManifest.xml 位于 res/ 之外，不受影响，正常保留
+_F_BURN_BLACK='(^|/)(\.git|\.gradle|\.idea|build|node_modules|dist|bin|out)/|.*lock.*|\.min\.(js|css)$|release\.properties$|\.(keystore|jks|key|pem)$|google-services\.json$|(^|/)res/.*\.(json|xml)$|(^|/)assets/.*\.(json|xml)$'
 
 # 大文件阈值（KB）——超过则在注释里标注大小，但照常完整打包
 _F_BURN_BIG_KB=64
@@ -98,18 +99,24 @@ _f_burn() {
         local size
         size=$(wc -c < "$file" 2>/dev/null || echo 0)
 
-        printf "\n// ━━━━━━━━━━━━━━━━━━━━━━━━\n" >> "$TMP_FILE"
-        printf "// 📄 [%s]\n" "$file" >> "$TMP_FILE"
+        printf "\n// 📄 [%s]\n" "$file" >> "$TMP_FILE"
         if [ "$size" -gt $((_F_BURN_BIG_KB * 1024)) ]; then
             printf "// ⚠️ 大文件: %d KB（已完整打包）\n" "$((size/1024))" >> "$TMP_FILE"
             big_count=$((big_count + 1))
         fi
-        printf "// ━━━━━━━━━━━━━━━━━━━━━━━━\n" >> "$TMP_FILE"
 
-        sed -e 's/^[[:space:]]*//' \
-            -e 's/[[:space:]]*$//' \
-            -e '/^[[:space:]]*$/d' \
-            "$file" >> "$TMP_FILE"
+        case "$file" in
+            *.kt|*.kts)
+                # kotlin 文件：额外过滤注释（行注释/块注释/KDoc），其余语言原样打包
+                _f_burn_strip_kt_comments < "$file" >> "$TMP_FILE"
+                ;;
+            *)
+                sed -e 's/^[[:space:]]*//' \
+                    -e 's/[[:space:]]*$//' \
+                    -e '/^[[:space:]]*$/d' \
+                    "$file" >> "$TMP_FILE"
+                ;;
+        esac
 
         count=$((count + 1))
         printf "\r  \033[33m处理: %d 文件...\033[0m" "$count" >&2
@@ -133,6 +140,67 @@ _f_burn() {
     if _f_burn_clip "$OUT_FILE"; then
         echo -e "  📋 路径已复制到剪贴板"
     fi
+}
+
+# ── kotlin 注释过滤（仅 .kt/.kts 使用，源文件不落盘、不修改）──
+# 逐字符状态机：过滤行注释 //（含行内）、块注释 /* */（含嵌套与 KDoc），
+# 但字符串（双引号/单引号/三引号原始字符串）内的 //、/* 原样保留，不误伤 URL。
+# 输出行为与原 sed 对齐：去首尾空白 + 删空行。
+# 状态: 0=代码 1=双引号串 2=单引号字符 3=三引号串 4=块注释(depth 计嵌套)
+_f_burn_strip_kt_comments() {
+    awk '
+    BEGIN { state = 0; depth = 0 }
+    {
+        out = ""
+        n = length($0)
+        i = 1
+        while (i <= n) {
+            c = substr($0, i, 1)
+            if (state == 0) {
+                if (c == "/" && i < n) {
+                    nxt = substr($0, i + 1, 1)
+                    if (nxt == "/") break
+                    if (nxt == "*") { state = 4; depth = 1; i += 2; continue }
+                }
+                if (c == "\"") {
+                    # 三引号原始字符串必须连续三个引号，空字符串 "" 不算
+                    if (i + 2 <= n && substr($0, i, 3) == "\"\"\"") {
+                        out = out "\"\"\""; i += 3; state = 3; continue
+                    }
+                    state = 1
+                } else if (c == "\047") {
+                    state = 2
+                }
+                out = out c; i++
+            } else if (state == 1) {
+                out = out c
+                if (c == "\\" && i < n) { i++; out = out substr($0, i, 1); i++; continue }
+                if (c == "\"") state = 0
+                i++
+            } else if (state == 2) {
+                out = out c
+                if (c == "\\" && i < n) { i++; out = out substr($0, i, 1); i++; continue }
+                if (c == "\047") state = 0
+                i++
+            } else if (state == 3) {
+                out = out c
+                if (c == "\"" && i + 2 <= n && substr($0, i + 1, 2) == "\"\"") {
+                    out = out "\"\""; i += 3; state = 0; continue
+                }
+                i++
+            } else if (state == 4) {
+                if (c == "/" && i < n && substr($0, i + 1, 1) == "*") { depth++; i += 2; continue }
+                if (c == "*" && i < n && substr($0, i + 1, 1) == "/") {
+                    depth--; i += 2
+                    if (depth <= 0) state = 0
+                    continue
+                }
+                i++
+            }
+        }
+        gsub(/^[ \t]+|[ \t]+$/, "", out)
+        if (out != "") print out
+    }'
 }
 
 # ── 文件扫描引擎：按模式产出待打包文件列表（含白名单/黑名单/模块过滤）──
@@ -192,11 +260,13 @@ _f_burn_help() {
     echo -e "\033[1;36m
  焚诀·炼化引擎 f — 用法
 ────────────────────────────────────────
- f              全量打包：滤掉矢量图/密钥/缓存/锁文件，其余全部打包
+ f              全量打包：滤掉矢量图/密钥/缓存/锁文件/资源目录下 json-xml
  f -d           增量打包：只打包未提交的改动 + 新文件
  f <关键词>     定向打包：只打包路径含关键词的文件（如 f nav）
  f -h           显示本帮助
 ────────────────────────────────────────
+ 🧹 kotlin(.kt/.kts) 注释自动过滤（含行内注释，字符串/URL 不误伤）
+ 📄 文件头只保留 // 📄 [路径]（大文件另标注大小）
  大文件（>${_F_BURN_BIG_KB}KB）不丢弃，会完整打包并标注路径与大小
  输出路径: 项目上一级 > 第一个书签 > FZ_BASE > HOME
 \033[0m"
