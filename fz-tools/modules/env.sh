@@ -45,6 +45,9 @@ _setup_env() {
 
     if command -v gh &>/dev/null; then
         echo -e "\033[32m✅ GitHub CLI: $(gh --version | head -1)\033[0m"
+        if _gh_ensure_credential; then
+            echo -e "\033[32m🔑 git 凭据已配置，GitHub 操作无需再登录\033[0m"
+        fi
     else
         echo -e "\033[33m⚠️  GitHub CLI 未安装（创建远程仓库需要）\033[0m"
         echo -e "Termux:        \033[33mpkg install gh\033[0m"
@@ -104,6 +107,17 @@ _trust_dir() {
 }
 
 # ══════════════════════════════════════════
+#  🔑  确保 git 走 HTTPS 时自动复用 gh 凭据（幂等，可重复调用）
+#      修复：login 在“已登录 + 选不重登”时提前 return，会跳过
+#      gh auth setup-git，导致 git push/pull/fetch/clone 仍需输入用户名密码。
+# ══════════════════════════════════════════
+_gh_ensure_credential() {
+    command -v gh &>/dev/null || return 1
+    gh auth status &>/dev/null || return 1
+    gh auth setup-git
+}
+
+# ══════════════════════════════════════════
 #  🔑  GitHub 登录（login）
 # ══════════════════════════════════════════
 _github_login() {
@@ -119,6 +133,10 @@ _github_login() {
         echo -e "\033[31m❌ 需要先安装 GitHub CLI，执行 'setup'\033[0m"
         return 1
     fi
+
+    # 只要 gh 已登录，就先确保 git 全局凭据已配置（幂等），
+    # 避免“已登录 + 选不重登”提前 return 跳过后面的 gh auth setup-git
+    _gh_ensure_credential
 
     if gh auth status &>/dev/null; then
         echo -e "\033[32m✅ 当前登录状态:\033[0m"
