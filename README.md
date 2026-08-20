@@ -55,18 +55,22 @@ scripts/
 
 ## 安装（新用户）
 
+
 ```bash
-# 1. 克隆仓库
+# 1. 安装依赖
+pkg install git curl gh
+
+# 2. 克隆本仓库
 git clone https://github.com/zzgs219G/scripts.git
 
-# 2. 写入 ~/.bashrc（把 <仓库路径> 换成实际克隆位置，如 ~/scripts）
-echo 'source <仓库路径>/fz-tools/fzgit.sh' >> ~/.bashrc
+# 3. 写入 ~/.bashrc
+echo 'source scripts/fz-tools/fzgit.sh' >> ~/.bashrc
 source ~/.bashrc
 
-# 3. 初始化
+# 4. 初始化
 setup    # 检查环境 + 配置 Git 全局信息 + 创建书签
 login    # 登录 GitHub（可选）
-aikey    # 配置 AI commit Key（可选）
+aikey    # 配置 AI commit Key（可选，自动生成提交信息）
 ```
 
 ## 迁移（旧版 curl 注入用户）
