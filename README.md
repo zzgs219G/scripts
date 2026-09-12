@@ -60,11 +60,13 @@ scripts/
 # 1. 安装依赖
 pkg install git curl gh
 
-# 2. 克隆本仓库
+# 2. 克隆到 HOME
+cd ~
 git clone https://github.com/zzgs219G/scripts.git
 
-# 3. 写入 ~/.bashrc
-echo 'source scripts/fz-tools/fzgit.sh' >> ~/.bashrc
+# 3. 写入 ~/.bashrc（幂等，重复执行不会堆叠）
+sed -i '/fz-tools\/fzgit.sh/d' ~/.bashrc
+echo 'source "$HOME/scripts/fz-tools/fzgit.sh"' >> ~/.bashrc
 source ~/.bashrc
 
 # 4. 初始化
