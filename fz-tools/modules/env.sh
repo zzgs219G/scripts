@@ -258,16 +258,44 @@ _fz_platform_of() {
     esac
 }
 
-# 交互式拼装远程 URL（返回全局变量 FZ_REMOTE_URL，失败置空）
+# 交互式确定远程 URL（返回全局变量 FZ_REMOTE_URL，失败置空）
+# v5.99 重构（修复"平台选择卡死 + 无法粘贴 URL"）：
+#   1. 旧版把 "$(_fz_platforms | cut -d'|' -f1)" 作为一个带引号参数传给
+#      _fz_picker，6 个平台被压成 1 个含换行的条目 → picker n=1，
+#      ↑/↓ 指示器永远不动（用户视角即"卡死"）。现改为逐行读入数组。
+#   2. 第一推荐项改为"粘贴完整 URL"，任意平台通吃，粘贴后自动识别平台；
+#      平台模板保留为快捷方式。
+#   3. 模板模式下用户名默认取 gh 登录账号，仓库名默认取当前目录名，
+#      回车即可，不再强制手打。
 _fz_build_url() {
     FZ_REMOTE_URL=""
-    _fz_picker "选择推送平台: " "$(_fz_platforms | cut -d'|' -f1)"
+    local -a p_names=() p_tmpls=()
+    while IFS='|' read -r name tmpl _; do
+        p_names+=("$name")
+        p_tmpls+=("$tmpl")
+    done < <(_fz_platforms)
+
+    # ── 方式二选一（v5.99）：URL 直粘 / 用户名+仓库名拼装 ──
+    # 平台表只在"名字拼装"分支出现；URL 粘贴天然跨平台无需平台表
+    _fz_picker "绑定方式: " \
+        "📎 粘贴完整仓库 URL（任意平台，自动识别，推荐）" \
+        "🔤 用 用户名/仓库名 + 平台 拼装"
+    local mode="$FZ_PICK_RET"
+
+    if [ "$mode" = "1" ]; then
+        read -p "粘贴完整远程 URL（https://... 或 git@...）: " FZ_REMOTE_URL
+        [ -z "$FZ_REMOTE_URL" ] && return 1
+        echo -e "\033[90m识别平台: $(_fz_platform_of "$FZ_REMOTE_URL")\033[0m"
+        return 0
+    fi
+    [ "$mode" = "2" ] || return 1
+
+    # ── 名字拼装分支：先选平台 ──
+    _fz_picker "选择平台: " "${p_names[@]}"
     local pidx="$FZ_PICK_RET"
     [[ ! "$pidx" =~ ^[0-9]+$ ]] && return 1
-    local plat
-    plat=$(_fz_platforms | sed -n "${pidx}p" | cut -d'|' -f1)
-    local tmpl
-    tmpl=$(_fz_platforms | sed -n "${pidx}p" | cut -d'|' -f2)
+    local i=$((pidx - 1))
+    local plat="${p_names[$i]}" tmpl="${p_tmpls[$i]}"
 
     if [ -z "$tmpl" ]; then
         read -p "输入完整远程 URL: " FZ_REMOTE_URL
@@ -275,9 +303,23 @@ _fz_build_url() {
         return 0
     fi
 
-    read -p "用户名/组织名: " p_user
+    local p_user p_repo
+    local gh_user=""
+    if command -v gh &>/dev/null; then
+        gh_user=$(gh api user --jq '.login' 2>/dev/null)
+    fi
+    if [ -n "$gh_user" ]; then
+        read -p "用户名/组织名（回车=${gh_user}）: " p_user
+        p_user="${p_user:-$gh_user}"
+    else
+        read -p "用户名/组织名: " p_user
+    fi
     [ -z "$p_user" ] && return 1
-    read -p "仓库名: " p_repo
+
+    local def_repo
+    def_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+    read -p "仓库名（回车=${def_repo}）: " p_repo
+    p_repo="${p_repo:-$def_repo}"
     [ -z "$p_repo" ] && return 1
 
     FZ_REMOTE_URL="${tmpl//\{user\}/$p_user}"
@@ -316,9 +358,26 @@ _remote_mgr() {
             r_name="${r_name:-cnb}"
             target="$r_name" ;;
         3)
-            local r_del
-            read -p "要删除的远程名称: " r_del
-            git remote remove "$r_del" && echo -e "\033[32m✅ 已删除 $r_del\033[0m"
+            # v5.99：删除远程改为 picker 选择（旧版裸 read 手打名字，
+            # 输错/输不存在时既不报错也不删除，表现为"删除不了"）
+            local -a r_list=()
+            while IFS= read -r r; do
+                [ -n "$r" ] && r_list+=("$r → $(git remote get-url "$r" 2>/dev/null)")
+            done < <(git remote)
+            if [ ${#r_list[@]} -eq 0 ]; then
+                echo -e "\033[33m⚠️ 当前没有任何远程，无需删除\033[0m"
+                return 0
+            fi
+            _fz_picker "删除哪个远程: " "${r_list[@]}"
+            local r_sel="$FZ_PICK_RET"
+            [[ ! "$r_sel" =~ ^[0-9]+$ ]] && { echo -e "\033[90m已取消\033[0m"; return 0; }
+            local r_del="${r_list[$((r_sel - 1))]%% *}"
+            read -p "确认删除 ${r_del}？(y/n): " r_ok
+            if [[ "$r_ok" == "y" || "$r_ok" == "Y" ]]; then
+                git remote remove "$r_del" && echo -e "\033[32m✅ 已删除 $r_del\033[0m"
+            else
+                echo -e "\033[90m已取消\033[0m"
+            fi
             return 0 ;;
         4)  git remote show origin; return 0 ;;
         *)  : ;;
@@ -420,4 +479,51 @@ _update_script() {
         echo -e "\033[31m❌ 拉取更新失败，请检查本地 scripts 仓库是否有未提交改动\033[0m"
         return 1
     fi
+}
+
+# ══════════════════════════════════════════
+#  🎬  项目初始化（init）v5.99 新增
+#  空文件夹 → git init → 萌新引导链（绑远程 → 首次推送）
+#  设计要点：
+#   - 幂等：已是 git 仓库时提示后照常进入引导，不重复 init
+#   - 初始化后先落一个 .gitignore 兜底 + 初始提交，保证分支存在
+#   - 引导链每一步都可退出，退出不留脏状态
+# ══════════════════════════════════════════
+_fz_init() {
+    echo -e "\n\033[1;35m🎬 项目初始化\033[0m\n"
+
+    if git rev-parse --git-dir &>/dev/null; then
+        echo -e "\033[33m⚠️ 当前目录已经是 git 仓库，无需重复初始化\033[0m"
+    else
+        git init || { echo -e "\033[31m❌ git init 失败\033[0m"; return 1; }
+        echo -e "\033[32m✅ git 仓库已初始化\033[0m"
+    fi
+
+    # 主分支统一为 main（与 p / b 模块习惯一致）
+    local cur_branch
+    cur_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+    if [ -z "$cur_branch" ]; then
+        git symbolic-ref HEAD refs/heads/main
+    fi
+
+    # 初始提交：仅当仓库完全无提交时做（避免覆盖用户已有历史）
+    if ! git rev-parse HEAD &>/dev/null; then
+        [ -f .gitignore ] || printf '.DS_Store\n*.log\nnode_modules/\n__pycache__/\n' > .gitignore
+        git add . 2>/dev/null
+        git commit -m "🎉 init: 项目初始化" --allow-empty &>/dev/null
+        echo -e "\033[32m✅ 初始提交已创建\033[0m"
+    fi
+
+    # ── 萌新引导链 ──
+    local has_remote
+    has_remote=$(git remote | head -1)
+    _fz_picker "下一步做什么: " \
+        "🔗 绑定远程仓库（绑定后才能备份到云端）" \
+        "🚀 直接试试推送 p（没绑远程会失败）" \
+        "✅ 暂时不用，我自己来（随时执行 h 查看全部指令）"
+    case "$FZ_PICK_RET" in
+        1) _remote_mgr ;;
+        2) _p_push ;;
+        *) echo -e "\033[90m💡 已初始化完成。常用: p=推送 · st=状态 · cl=克隆 · h=全部指令\033[0m" ;;
+    esac
 }

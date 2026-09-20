@@ -165,6 +165,8 @@ _p_push() {
             echo -e "\033[33m📤 检测到 $ahead 个未推送的提交，直接推送...\033[0m"
             if git push "$_fz_remote" "$b_name"; then
                 echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")\033[0m]\033[0m"
+            else
+                _fz_push_rejected_guide "$_fz_remote" "$b_name"
             fi
         else
             echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
@@ -234,7 +236,13 @@ _p_push() {
     [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
     if ! git push "${_push_args[@]}" 2>/dev/null; then
         echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
-        git push -u "${_fz_remote}" "${b_name}" && push_ok=1
+        if git push -u "${_fz_remote}" "${b_name}" 2>/dev/null; then
+            push_ok=1
+        else
+            # v5.99：被拒不再甩一句"去 pull"就结束，进入统一引导
+            _fz_push_rejected_guide "$_fz_remote" "$b_name"
+            return 1
+        fi
     else
         push_ok=1
     fi
@@ -256,4 +264,48 @@ _p_push() {
     else
         echo -e "\033[31m❌ 推送失败！\033[0m"
     fi
+}
+
+# ══════════════════════════════════════════
+#  🧭  推送被拒统一引导（v5.99 新增，报错记录核心 bug）
+#  push 失败时自动诊断原因，最常见的是「本地新项目 vs 远程已有内容」
+#  （unrelated histories）——旧版只会让用户去 pull，而 pull 对这种
+#  情况同样被拒，用户（不会 git 指令）就彻底卡死。现在自动修复。
+# ══════════════════════════════════════════
+_fz_push_rejected_guide() {
+    local _fz_remote="${1:-origin}" b_name="${2:-$(git branch --show-current)}"
+    local r_url
+    r_url=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
+
+    echo -e "\n\033[31m❌ 推送到 $r_url 被拒绝\033[0m"
+    git fetch --quiet "$_fz_remote" 2>/dev/null
+
+    # 诊断 1：远程分支存在但与本地无共同祖先（首推撞上自动生成 README 等）
+    if git rev-parse --verify --quiet "$_fz_remote/$b_name" >/dev/null 2>&1 \
+        && ! git merge-base --quiet HEAD "$_fz_remote/$b_name" 2>/dev/null; then
+        echo -e "\033[1;33m诊断结果：远程已有内容，但与本地没有任何共同历史\033[0m"
+        _fz_unrelated_history_guide "$b_name"
+        return
+    fi
+
+    # 诊断 2：本地落后远程（正常 fetch first 场景）→ 走既有智能拉取
+    local behind
+    behind=$(git rev-list --count "HEAD..$_fz_remote/$b_name" 2>/dev/null || echo 0)
+    if [ "$behind" -gt 0 ]; then
+        echo -e "\033[1;33m诊断结果：本地落后远程 $behind 个提交\033[0m"
+        echo -e "\033[36m👉 自动执行安全拉取（pull 保护流程）...\033[0m"
+        if _pull_now; then
+            echo -e "\033[36m👉 已同步，重新推送...\033[0m"
+            git push -u "$_fz_remote" "$b_name" \
+                && echo -e "\033[32m✅ 推送成功\033[0m" \
+                || echo -e "\033[31m❌ 仍失败，执行 \033[36mfix\033[0m 排查\033[0m"
+        fi
+        return
+    fi
+
+    # 诊断 3：兜底（凭据/网络/分支保护等）
+    echo -e "\033[1;33m诊断结果：非历史冲突类问题，常见原因：\033[0m"
+    echo -e "  · 凭据失效（HTTPS 令牌过期）→ 重新 \033[36mlogin\033[0m"
+    echo -e "  · 分支保护规则（远程禁 push）→ 检查平台仓库设置"
+    echo -e "  · 网络不通 → \033[36mst\033[0m 看状态后重试"
 }

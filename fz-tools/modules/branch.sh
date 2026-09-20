@@ -211,18 +211,38 @@ _sync_branch() {
 
     if [ -n "$(git status -s 2>/dev/null)" ]; then
         echo -e "\033[33m⚠️ 存在未提交变更，先暂存...\033[0m"
-        git stash push -m "sync_auto_stash_$(date '+%m%d_%H%M')"
+        git stash push -m "sync_auto_stash_$(date '+%m%d_%H%M')" || return 1
         local stashed=1
     fi
 
-    git fetch origin 2>/dev/null
-    git rebase "origin/$cur_br" 2>/dev/null || {
+    if ! git fetch origin 2>/dev/null; then
+        echo -e "\033[31m❌ fetch 失败（远程不可达或未绑定）\033[0m"
+        [ "${stashed:-0}" = "1" ] && git stash pop &>/dev/null
+        return 1
+    fi
+
+    # v5.99 修复（报错记录 bug③）：旧版 rebase 失败回退 merge，merge 失败
+    # 也继续往下走并打印"✅ 同步完成"，把致命错误吞成假成功。现改为：
+    # 每一步失败立即终止并给出明确出路，绝不再报假成功。
+    if ! git rebase "origin/$cur_br" 2>/dev/null; then
         echo -e "\033[33m⚠️ rebase 遇到冲突，回退为 merge...\033[0m"
         git rebase --abort 2>/dev/null
-        git merge "origin/$cur_br"
-    }
+        if ! git merge "origin/$cur_br" 2>/dev/null; then
+            git merge --abort 2>/dev/null
+            if git rev-list --count "HEAD..origin/$cur_br" 2>/dev/null | grep -qv '^0$' \
+                && ! git merge-base HEAD "origin/$cur_br" &>/dev/null; then
+                echo -e "\033[31m❌ 本地与远程没有任何共同历史（unrelated histories）\033[0m"
+                echo -e "   💡 远程仓库已存在内容（如建库时自动生成的 README）"
+                _fz_unrelated_history_guide "$cur_br"
+            else
+                echo -e "\033[31m❌ 合并冲突，执行 \033[36mfix\033[0m 引导解决后重新 \033[36mgsync\033[0m\033[0m"
+            fi
+            [ "${stashed:-0}" = "1" ] && git stash pop &>/dev/null
+            return 1
+        fi
+    fi
 
-    if [ "${stashed}" = "1" ]; then
+    if [ "${stashed:-0}" = "1" ]; then
         echo -e "\033[34m📦 恢复暂存的变更...\033[0m"
         git stash pop
     fi
@@ -242,4 +262,45 @@ _main_branch() {
     else
         echo -e "\033[31m❌ 没有 main/master 分支\033[0m"
     fi
+}
+
+# ══════════════════════════════════════════
+#  🧭  unrelated histories 萌新引导（v5.99 新增，报错记录核心 bug）
+#  场景：本地新项目推到"建库时勾了自动生成 README"的远程 →
+#        两边没有共同祖先，push 被拒、pull/merge 也拒绝。
+#  给出带后果说明的二选一：合并远程（保留远程 README）或覆盖远程。
+# ══════════════════════════════════════════
+_fz_unrelated_history_guide() {
+    local cur_br="${1:-$(git branch --show-current)}"
+    echo -e "\n\033[1;33m🧭 检测到「本地新项目 vs 远程已有内容」\033[0m"
+    echo -e "\033[90m远程仓库建库时可能自动生成了 README/.gitignore 等文件，\033[0m"
+    echo -e "\033[90m与本地仓库没有共同历史，git 默认拒绝直接合并。\033[0m\n"
+    echo -e "  \033[33m[1]\033[0m 合并远程内容（推荐：远程的 README 会保留，历史合二为一）"
+    echo -e "  \033[33m[2]\033[0m 用本地覆盖远程（远程上原有文件会被移除，如远程 README）"
+    echo -e "  \033[33m[3]\033[0m 取消，我自己处理"
+    read -p "请选择 (回车=1): " uh_choice
+    case "${uh_choice:-1}" in
+        1)
+            if git merge "origin/$cur_br" --allow-unrelated-histories --no-edit; then
+                echo -e "\033[32m✅ 已合并远程历史，现在执行 \033[1mp\033[0m\033[32m 即可推送\033[0m"
+            else
+                echo -e "\033[31m❌ 合并仍有冲突（多为 add/add 同名文件），执行 \033[36mfix\033[0m 引导解决\033[0m"
+                return 1
+            fi
+            ;;
+        2)
+            read -p "⚠️ 确认覆盖远程？（远程原有文件将丢失）(y/n): " uh_ok
+            if [[ "$uh_ok" == "y" || "$uh_ok" == "Y" ]]; then
+                if git push -u origin "$cur_br" --force; then
+                    echo -e "\033[32m✅ 已用本地覆盖远程并建立跟踪，之后 \033[1mp\033[0m\033[32m 正常使用\033[0m"
+                else
+                    echo -e "\033[31m❌ 覆盖推送失败，检查网络/凭据后重试\033[0m"
+                    return 1
+                fi
+            else
+                echo -e "\033[90m已取消\033[0m"
+            fi
+            ;;
+        *) echo -e "\033[90m已取消。手动命令: git pull origin $cur_br --allow-unrelated-histories\033[0m" ;;
+    esac
 }
