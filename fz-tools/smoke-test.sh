@@ -111,10 +111,11 @@ cd "$TEST_ROOT"
 _c_jump <<< $'1\n0\n' >/dev/null 2>&1
 assert "T3a 阶段1→2 [0] 进入书签根目录" [ "$PWD" = "$BM1" ]
 
-_c_jump <<< $'1\n1\n1\n' >/dev/null 2>&1
+# v5.95 编号语义修复后：阶段2 屏幕 1=进入书签根目录，2=第一个项目
+_c_jump <<< $'1\n2\n1\n' >/dev/null 2>&1
 assert "T3b 阶段3 [1] 进入项目" [ "$PWD" = "$BM1/projA" ]
 
-_c_jump <<< $'1\n1\n\n' >/dev/null 2>&1
+_c_jump <<< $'1\n2\n\n' >/dev/null 2>&1
 assert "T3f 阶段3 回车默认=1 进入项目" [ "$PWD" = "$BM1/projA" ]
 
 _c_jump "主工作台" <<< $'0\n' >/dev/null 2>&1

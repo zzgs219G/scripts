@@ -51,28 +51,58 @@ _fz_picker() {
 
     local cur=1 i key seq
     while true; do
-        # 重绘：光标上移清屏（首轮不跳）
+        # 重绘：光标回到行首 → 上移到菜单顶 → 清到屏幕底（首轮不跳）
+        # v5.95 修复：旧版固定上移 n+1 行且未回 \r，菜单含中文/emoji/长路径
+        # 折行后上移量不足，旧菜单清不掉 → 按方向键时内容不断重复堆叠。
+        # 现按"上一轮实际打印行数"精确上移。
         if [ "${_FZ_PICK_DRAWN:-0}" -eq 1 ]; then
-            printf '\033[%dA\033[J' "$((n + 1))"
+            printf '\r\033[%dA\033[J' "${_FZ_PICK_LAST_LINES:-$((n + 2))}"
         fi
         echo -e "${prompt}"
+        local lines=1   # 已打印行数（prompt 占 1 行）
+        local cols=${COLUMNS:-80}
+        local max_w=$((cols - 14))          # 预留前缀 "  ❯ 99. " 与余量
+        [ "$max_w" -lt 20 ] && max_w=20
         for ((i = 1; i <= n; i++)); do
-            if [ "$i" -eq "$cur" ]; then
-                echo -e "  \033[7m ❯ ${i}. ${items[$((i - 1))]} \033[0m"
-            else
-                echo -e "    \033[33m${i}.\033[0m ${items[$((i - 1))]}"
+            local item="${items[$((i - 1))]}"
+            # ── 防折行（重复堆叠 bug 主因之一）──
+            # 估算终端可见宽度：CJK/全角字符按 2 列计；超宽项降级为
+            # 纯文本截断（该行牺牲配色，避免折行破坏精确重绘）
+            local vis
+            vis=$(printf '%s' "$item" | sed 's/\x1b\[[0-9;]*m//g')
+            local w=0 j ch
+            for ((j = 0; j < ${#vis}; j++)); do
+                ch="${vis:j:1}"
+                if [[ "$ch" == [^\x00-\x7F] ]]; then w=$((w + 2)); else w=$((w + 1)); fi
+            done
+            if [ "$w" -gt "$max_w" ]; then
+                local acc=0 cut=${#vis}
+                for ((j = 0; j < ${#vis}; j++)); do
+                    ch="${vis:j:1}"
+                    if [[ "$ch" == [^\x00-\x7F] ]]; then acc=$((acc + 2)); else acc=$((acc + 1)); fi
+                    if [ "$acc" -gt "$((max_w - 2))" ]; then cut=$j; break; fi
+                done
+                item="${vis:0:cut}…"
             fi
+            if [ "$i" -eq "$cur" ]; then
+                echo -e "  \033[7m ❯ ${i}. ${item} \033[0m"
+            else
+                echo -e "    \033[33m${i}.\033[0m ${item}"
+            fi
+            lines=$((lines + 1))
         done
         echo -e "  \033[90m↑/↓ 或数字选择 · 回车确认 · q 退出\033[0m"
+        lines=$((lines + 1))
         _FZ_PICK_DRAWN=1
+        _FZ_PICK_LAST_LINES=$lines   # 供下次重绘精确上移
 
         # 逐键读取；ESC 开头的转义序列再补读 2 字节
         IFS= read -rsn1 key || { FZ_PICK_RET="q"; return 1; }
         if [ "$key" = $'\x1b' ]; then
             IFS= read -rsn2 -t 0.05 seq || seq=""
             case "$seq" in
-                '[A') cur=$((cur > 1 ? cur - 1 : n)) ;;
-                '[B') cur=$((cur < n ? cur + 1 : 1)) ;;
+                '[A'|'OA') cur=$((cur > 1 ? cur - 1 : n)) ;;   # ↑（[A=xterm, OA=Termux应用模式）
+                '[B'|'OB') cur=$((cur < n ? cur + 1 : 1)) ;;   # ↓
                 *)    FZ_PICK_RET="q"; return 1 ;;   # 其他 ESC 序列当作退出
             esac
             continue
@@ -238,7 +268,8 @@ _c_project_menu() {
         local sel="$FZ_PICK_RET"
 
         case "$sel" in
-            q|Q|0)
+            q|Q|0|1)
+                # 0/1 = 进入书签根目录（1 是首项占位"进入此目录"）
                 cd "$bm_path" || return 1
                 echo -e "\033[32m📂 已进入: \033[1m${bm_path}\033[0m"
                 return 0
@@ -251,7 +282,10 @@ _c_project_menu() {
                     if [ "$sel" -eq ${#pj_items[@]} ]; then
                         return 2
                     fi
-                    local idx=$((sel - 1))   # 项目在 dirs 中从 0 起（pj_items 首项占 1）
+                    # v5.95 编号错位修复：pj_items[0] 是"进入书签根目录"占位项，
+                    # 屏幕 sel=1 对应占位项，sel=2 才对应 dirs[0]，
+                    # 旧版 idx=sel-1 把所有项目整体错位一格
+                    local idx=$((sel - 2))
                     if [ $idx -ge 0 ] && [ $idx -lt ${#dirs[@]} ]; then
                         local proj="${dirs[$idx]}"
                         _c_project_ops "$bm_name" "$bm_path" "$proj"
