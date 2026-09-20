@@ -74,6 +74,19 @@ print(data['content'][0]['text'].strip())
 _p_push() {
     _check_git_repo || return 1
 
+    # v5.97：p 远程名 —— 一键推送到指定远程（如 p cnb / p gitee）
+    # 不带参数 = 走 origin（默认行为不变）
+    local _fz_remote="origin"
+    if [ -n "${1:-}" ] && [ "${1:-}" != "skip" ] && [[ "${1:-}" != -* ]]; then
+        _fz_remote="$1"
+        set -- "${2:-}"
+        if ! git remote get-url "$_fz_remote" >/dev/null 2>&1; then
+            echo -e "\033[31m❌ 远程 \"${_fz_remote}\" 未绑定，执行 \033[1mremote\033[0m\033[31m 可绑定\033[0m"
+            return 1
+        fi
+        echo -e "\033[36m🎯 本次推送到远程: \033[1m${_fz_remote}\033[0m \033[90m($(git remote get-url "$_fz_remote"))\033[0m"
+    fi
+
     # v5.0 前置检查：是否在书签项目内（计划书 6.2）
     if ! _bm_current >/dev/null; then
         echo -e "\033[33m⚠️ 当前目录不在任何书签项目内\033[0m"
@@ -150,8 +163,8 @@ _p_push() {
         ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
         if [ "$ahead" -gt 0 ]; then
             echo -e "\033[33m📤 检测到 $ahead 个未推送的提交，直接推送...\033[0m"
-            if git push origin "$b_name"; then
-                echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m$(git remote get-url origin 2>/dev/null || echo origin)\033[0m]\033[0m"
+            if git push "$_fz_remote" "$b_name"; then
+                echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")\033[0m]\033[0m"
             fi
         else
             echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
@@ -159,7 +172,7 @@ _p_push() {
         return 0
     fi
 
-    local remote_url=$(git remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    local remote_url=$(git remote get-url "$_fz_remote" 2>/dev/null | tr '[:upper:]' '[:lower:]')
     local next_version="" next_sub_ver=0 fz_file=""
 
     # v4.0 重构后主入口位于 fz-tools/fzgit.sh（兼容旧位置）
@@ -217,11 +230,11 @@ _p_push() {
     }
 
     local push_ok=0
-    local -a _push_args=(origin "${b_name}")
+    local -a _push_args=("${_fz_remote}" "${b_name}")
     [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
     if ! git push "${_push_args[@]}" 2>/dev/null; then
         echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
-        git push -u origin "${b_name}" && push_ok=1
+        git push -u "${_fz_remote}" "${b_name}" && push_ok=1
     else
         push_ok=1
     fi
@@ -235,7 +248,7 @@ _p_push() {
 
     if [ "$push_ok" -eq 1 ]; then
         local remote_name
-        remote_name=$(git remote get-url origin 2>/dev/null || echo "origin")
+        remote_name=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
         echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m${remote_name}\033[0m\033[32m] | ${change_count} 个文件变更\033[0m"
         if [ -n "$fz_file" ]; then
             echo -e "\033[35m💡 远程已更新至 v${next_version}，执行 \033[1mup\033[0m\033[35m 可更新本地环境\033[0m"

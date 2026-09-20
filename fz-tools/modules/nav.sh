@@ -112,16 +112,30 @@ _fz_picker() {
         fi
         _FZ_PICK_PREV_CUR=$cur
 
-        # 逐键读取；ESC 开头的转义序列再补读 2 字节
+        # 逐键读取；ESC 开头的转义序列逐字节补读（v5.97 修复：上下键无反应）
+        # 旧版 `read -rsn2 -t 0.05` 假设 "\x1b[B" 三个字节同包到达；Termux
+        # 及部分终端会分片发送，0.05s 内没凑齐 2 字节就整键丢弃 → 表现为
+        # "按 ↑/↓ 指示器完全没反应"。现改为逐字节读取：
+        #   - 读到 [ABCD/O 等序列字节 → 按方向键处理
+        #   - 0.25s 内无后续字节 → 判定为用户单按 ESC 键，正常退出
+        #   （放宽到 0.25s：分片间隔可远大于 0.05s；单按 ESC 退出仅多等
+        #     0.25s，而方向键是高频操作必须保证可靠）
         IFS= read -rsn1 key || { FZ_PICK_RET="q"; return 1; }
         if [ "$key" = $'\x1b' ]; then
-            IFS= read -rsn2 -t 0.05 seq || seq=""
-            case "$seq" in
-                '[A'|'OA') cur=$((cur > 1 ? cur - 1 : n)) ;;   # ↑（[A=xterm, OA=Termux应用模式）
-                '[B'|'OB') cur=$((cur < n ? cur + 1 : 1)) ;;   # ↓
-                *)    FZ_PICK_RET="q"; return 1 ;;   # 其他 ESC 序列当作退出
-            esac
-            continue
+            local seq=""
+            while IFS= read -rsn1 -t 0.25 _fz_c; do
+                seq+="${_fz_c}"
+                # 方向键序列已完整（ESC [ 单字母 / ESC O 单字母），立即处理
+                case "$seq" in
+                    '[A'|'OA') cur=$((cur > 1 ? cur - 1 : n)); continue 2 ;;  # ↑
+                    '[B'|'OB') cur=$((cur < n ? cur + 1 : 1)); continue 2 ;;  # ↓
+                esac
+                # 序列长度超过 3 仍不匹配已知方向键 → 当作退出（原行为）
+                [ ${#seq} -ge 3 ] && { FZ_PICK_RET="q"; return 1; }
+            done
+            # 补读超时退出循环：seq 为空 = 用户单按 ESC；非空但不完整 = 罕见
+            # 截断序列，二者都按原行为当作退出
+            FZ_PICK_RET="q"; return 1
         fi
         case "$key" in
             '') FZ_PICK_RET="$cur"; return 0 ;;                     # 回车确认

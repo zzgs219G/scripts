@@ -287,42 +287,56 @@ _fz_build_url() {
 }
 
 # ══════════════════════════════════════════
-#  🔗  远程仓库管理（remote）v5.2 多平台升级
+#  🔗  远程仓库管理（remote）v5.97 轻量化
+#  设计原则：绑定一个新远程只该做一件事——选平台 → 填用户名/仓库名 → 完成，
+#  不再弹"四项主菜单"绕路；默认直接引导绑定/切换 origin（p 的默认远程），
+#  绑定非 origin 远程时提示后续用 p 远程名 推送。
 # ══════════════════════════════════════════
 _remote_mgr() {
     _check_git_repo || return 1
-    echo -e "\n\033[1;35m🔗 远程仓库管理\033[0m\n"
+    echo -e "\n\033[1;35m🔗 绑定远程仓库\033[0m\n"
     echo -e "\033[36m当前远程地址:\033[0m"
     git remote -v
     local cur_url
     cur_url=$(git remote get-url origin 2>/dev/null)
-    [ -n "$cur_url" ] && echo -e "\033[90m识别平台: $(_fz_platform_of "$cur_url")\033[0m"
+    [ -n "$cur_url" ] && echo -e "\033[90m识别平台: $(_fz_platform_of "$cur_url")（执行 p 默认推送到 origin）\033[0m"
 
-    # v5.3 编号前缀融合渲染（原手工菜单已并入 picker）
-    _fz_picker "请选择: " "设置/修改 origin（平台模板）" "添加新的远程" "删除远程" "查看远程详情"
+    # v5.97：先定目标远程（回车默认 origin，覆盖 p 的默认推送目标）
+    _fz_picker "绑定到哪个远程（回车=origin）: " \
+        "origin（p 默认推送目标）" \
+        "新建远程（如 cnb / gitee，之后用 p 远程名 推送）" \
+        "删除某个远程" \
+        "查看远程详情"
     local op="$FZ_PICK_RET"
-
+    local target="origin"
     case "$op" in
-        1)
-            if _fz_build_url; then
-                git remote set-url origin "$FZ_REMOTE_URL" 2>/dev/null || \
-                git remote add origin "$FZ_REMOTE_URL"
-                echo -e "\033[32m✅ 已更新 origin → $FZ_REMOTE_URL\033[0m"
-            fi ;;
         2)
             local r_name
-            read -p "远程名称（如 upstream/coding）: " r_name
-            [ -z "$r_name" ] && return 1
-            if _fz_build_url; then
-                git remote add "$r_name" "$FZ_REMOTE_URL" && \
-                echo -e "\033[32m✅ 已添加 $r_name → $FZ_REMOTE_URL\033[0m"
-            fi ;;
-        3) local r_del
-           read -p "要删除的远程名称: " r_del
-           git remote remove "$r_del" && echo -e "\033[32m✅ 已删除 $r_del\033[0m" ;;
-        4) git remote show origin ;;
-        *) return 0 ;;
+            read -p "远程名称（如 cnb / gitee / upstream）: " r_name
+            r_name="${r_name:-cnb}"
+            target="$r_name" ;;
+        3)
+            local r_del
+            read -p "要删除的远程名称: " r_del
+            git remote remove "$r_del" && echo -e "\033[32m✅ 已删除 $r_del\033[0m"
+            return 0 ;;
+        4)  git remote show origin; return 0 ;;
+        *)  : ;;
     esac
+
+    # 选平台 → 拼 URL（_fz_build_url 内部：picker 选平台 + 填用户名/仓库名）
+    if _fz_build_url; then
+        if git remote get-url "$target" >/dev/null 2>&1; then
+            git remote set-url "$target" "$FZ_REMOTE_URL"
+            echo -e "\033[32m✅ 已更新 $target → $FZ_REMOTE_URL\033[0m"
+        else
+            git remote add "$target" "$FZ_REMOTE_URL"
+            echo -e "\033[32m✅ 已绑定 $target → $FZ_REMOTE_URL\033[0m"
+        fi
+        if [ "$target" != "origin" ]; then
+            echo -e "\033[36m💡 之后执行 \033[1mp $target\033[0m \033[36m即可一键推送到该远程\033[0m"
+        fi
+    fi
 }
 
 # ══════════════════════════════════════════
