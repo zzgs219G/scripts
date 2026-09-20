@@ -62,6 +62,7 @@ _fz_picker() {
             # 精确上移 \033[2K 后重写），其余行不再擦写。
             local pc="${_FZ_PICK_PREV_CUR:-$cur}"
             if [ "$pc" -ne "$cur" ]; then
+                _FZ_PICK_CUR=$cur
                 _fz_picker_paint_row "$pc"
                 _fz_picker_paint_row "$cur"
             fi
@@ -72,7 +73,7 @@ _fz_picker() {
             local cols=${COLUMNS:-80}
             local max_w=$((cols - 14))          # 预留前缀 "  ❯ 99. " 与余量
             [ "$max_w" -lt 20 ] && max_w=20
-            local -a _FZ_PICK_ROW=()
+            local -a _FZ_PICK_TEXT=()
             for ((i = 1; i <= n; i++)); do
                 local item="${items[$((i - 1))]}"
                 # ── 防折行（重复堆叠 bug 主因之一）──
@@ -100,7 +101,7 @@ _fz_picker() {
                 else
                     row="    \033[33m${i}.\033[0m ${item}"
                 fi
-                _FZ_PICK_ROW[i]="$row"
+                _FZ_PICK_TEXT[i]="$item"   # 只缓存纯文本，样式重绘时按 cur 现场生成
                 buf+="${row}\n"
                 lines=$((lines + 1))
             done
@@ -151,13 +152,21 @@ _fz_picker() {
     done
 }
 
-# 内部辅助：原位重绘第 i 个菜单项行（含 ANSI 的缓存内容）
+# 内部辅助：原位重绘第 i 个菜单项行（v5.98 指示器不动 bug 修复）
 # 光标此时位于底部提示行下一行（第 n+3 行）行首；
 # item i 位于第 1+i 行 → 需上移 (n+3)-(1+i) = n+2-i 行
+# 缓存只存纯文本（_FZ_PICK_TEXT），选中/非选中样式在此按 cur 现场生成。
+# 旧版缓存首轮的"整行成品"导致重绘永远画首轮样式 → 指示器永远不动。
 _fz_picker_paint_row() {
     local i=$1
+    local row
+    if [ "$i" -eq "$_FZ_PICK_CUR" ]; then
+        row="  \033[7m ❯ ${i}. ${_FZ_PICK_TEXT[i]} \033[0m"
+    else
+        row="    \033[33m${i}.\033[0m ${_FZ_PICK_TEXT[i]}"
+    fi
     local up=$((_FZ_PICK_N + 2 - i))
-    printf '\r\033[%dA\033[2K%b\r\033[%dB' "$up" "${_FZ_PICK_ROW[i]}" "$up"
+    printf '\r\033[%dA\033[2K%b\r\033[%dB' "$up" "$row" "$up"
 }
 
 _c_jump() {
