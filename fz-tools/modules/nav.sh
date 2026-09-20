@@ -50,51 +50,67 @@ _fz_picker() {
     fi
 
     local cur=1 i key seq
+    _FZ_PICK_N=$n
     while true; do
-        # 重绘：光标回到行首 → 上移到菜单顶 → 清到屏幕底（首轮不跳）
-        # v5.95 修复：旧版固定上移 n+1 行且未回 \r，菜单含中文/emoji/长路径
-        # 折行后上移量不足，旧菜单清不掉 → 按方向键时内容不断重复堆叠。
-        # 现按"上一轮实际打印行数"精确上移。
         if [ "${_FZ_PICK_DRAWN:-0}" -eq 1 ]; then
-            printf '\r\033[%dA\033[J' "${_FZ_PICK_LAST_LINES:-$((n + 2))}"
-        fi
-        echo -e "${prompt}"
-        local lines=1   # 已打印行数（prompt 占 1 行）
-        local cols=${COLUMNS:-80}
-        local max_w=$((cols - 14))          # 预留前缀 "  ❯ 99. " 与余量
-        [ "$max_w" -lt 20 ] && max_w=20
-        for ((i = 1; i <= n; i++)); do
-            local item="${items[$((i - 1))]}"
-            # ── 防折行（重复堆叠 bug 主因之一）──
-            # 估算终端可见宽度：CJK/全角字符按 2 列计；超宽项降级为
-            # 纯文本截断（该行牺牲配色，避免折行破坏精确重绘）
-            local vis
-            vis=$(printf '%s' "$item" | sed 's/\x1b\[[0-9;]*m//g')
-            local w=0 j ch
-            for ((j = 0; j < ${#vis}; j++)); do
-                ch="${vis:j:1}"
-                if [[ "$ch" == [^\x00-\x7F] ]]; then w=$((w + 2)); else w=$((w + 1)); fi
-            done
-            if [ "$w" -gt "$max_w" ]; then
-                local acc=0 cut=${#vis}
+            # v5.96 修复：上下移动闪烁。
+            # 旧版每帧"\033[J 清屏到底 → 逐行 echo 重绘"，终端先见空白再
+            # 逐行画出，且每帧对每项重跑 sed 去色码 + 逐字符测宽（bash 中
+            # 很慢），Termux 上表现为明显闪烁。
+            # 现改为：菜单行内容首轮渲染后缓存，按方向键时只原位重绘
+            # 旧/新两行指示器（光标定位于底部提示行下方的空行，按行号
+            # 精确上移 \033[2K 后重写），其余行不再擦写。
+            local pc="${_FZ_PICK_PREV_CUR:-$cur}"
+            if [ "$pc" -ne "$cur" ]; then
+                _fz_picker_paint_row "$pc"
+                _fz_picker_paint_row "$cur"
+            fi
+        else
+            # ── 首轮全量渲染：缓冲后一次输出，减少撕裂 ──
+            local buf="${prompt}\n"
+            local lines=1   # 已打印行数（prompt 占 1 行）
+            local cols=${COLUMNS:-80}
+            local max_w=$((cols - 14))          # 预留前缀 "  ❯ 99. " 与余量
+            [ "$max_w" -lt 20 ] && max_w=20
+            local -a _FZ_PICK_ROW=()
+            for ((i = 1; i <= n; i++)); do
+                local item="${items[$((i - 1))]}"
+                # ── 防折行（重复堆叠 bug 主因之一）──
+                # 估算终端可见宽度：CJK/全角字符按 2 列计；超宽项降级为
+                # 纯文本截断（该行牺牲配色，避免折行破坏精确重绘）
+                local vis
+                vis=$(printf '%s' "$item" | sed 's/\x1b\[[0-9;]*m//g')
+                local w=0 j ch
                 for ((j = 0; j < ${#vis}; j++)); do
                     ch="${vis:j:1}"
-                    if [[ "$ch" == [^\x00-\x7F] ]]; then acc=$((acc + 2)); else acc=$((acc + 1)); fi
-                    if [ "$acc" -gt "$((max_w - 2))" ]; then cut=$j; break; fi
+                    if [[ "$ch" == [^\x00-\x7F] ]]; then w=$((w + 2)); else w=$((w + 1)); fi
                 done
-                item="${vis:0:cut}…"
-            fi
-            if [ "$i" -eq "$cur" ]; then
-                echo -e "  \033[7m ❯ ${i}. ${item} \033[0m"
-            else
-                echo -e "    \033[33m${i}.\033[0m ${item}"
-            fi
+                if [ "$w" -gt "$max_w" ]; then
+                    local acc=0 cut=${#vis}
+                    for ((j = 0; j < ${#vis}; j++)); do
+                        ch="${vis:j:1}"
+                        if [[ "$ch" == [^\x00-\x7F] ]]; then acc=$((acc + 2)); else acc=$((acc + 1)); fi
+                        if [ "$acc" -gt "$((max_w - 2))" ]; then cut=$j; break; fi
+                    done
+                    item="${vis:0:cut}…"
+                fi
+                local row
+                if [ "$i" -eq "$cur" ]; then
+                    row="  \033[7m ❯ ${i}. ${item} \033[0m"
+                else
+                    row="    \033[33m${i}.\033[0m ${item}"
+                fi
+                _FZ_PICK_ROW[i]="$row"
+                buf+="${row}\n"
+                lines=$((lines + 1))
+            done
+            buf+="  \033[90m↑/↓ 或数字选择 · 回车确认 · q 退出\033[0m\n"
+            printf '%b' "$buf"
             lines=$((lines + 1))
-        done
-        echo -e "  \033[90m↑/↓ 或数字选择 · 回车确认 · q 退出\033[0m"
-        lines=$((lines + 1))
-        _FZ_PICK_DRAWN=1
-        _FZ_PICK_LAST_LINES=$lines   # 供下次重绘精确上移
+            _FZ_PICK_DRAWN=1
+            _FZ_PICK_LAST_LINES=$lines   # 供调用方/调试参考（v5.96 起不再整屏重绘）
+        fi
+        _FZ_PICK_PREV_CUR=$cur
 
         # 逐键读取；ESC 开头的转义序列再补读 2 字节
         IFS= read -rsn1 key || { FZ_PICK_RET="q"; return 1; }
@@ -119,6 +135,15 @@ _fz_picker() {
             *)  FZ_PICK_RET="$key"; return 1 ;;                     # q/b/0 等透传
         esac
     done
+}
+
+# 内部辅助：原位重绘第 i 个菜单项行（含 ANSI 的缓存内容）
+# 光标此时位于底部提示行下一行（第 n+3 行）行首；
+# item i 位于第 1+i 行 → 需上移 (n+3)-(1+i) = n+2-i 行
+_fz_picker_paint_row() {
+    local i=$1
+    local up=$((_FZ_PICK_N + 2 - i))
+    printf '\r\033[%dA\033[2K%b\r\033[%dB' "$up" "${_FZ_PICK_ROW[i]}" "$up"
 }
 
 _c_jump() {
