@@ -219,29 +219,111 @@ _create_repo() {
 }
 
 # ══════════════════════════════════════════
-#  🔗  远程仓库管理（remote）
+#  🌐  平台 URL 模板（v5.2 新增，多平台推送支持）
+#  各平台远程地址拼装规则；{user}=用户名/组织 {repo}=仓库名
+#  新增平台只需在此表和 _fz_platform_hint 各加一行
+# ══════════════════════════════════════════
+# 平台模板表：名称|URL模板|是否需要HTTPS令牌(1/0)
+_fz_platforms() {
+    cat <<'FZ_PLATFORM_EOF'
+GitHub|https://github.com/{user}/{repo}.git|1
+GitLab|https://gitlab.com/{user}/{repo}.git|1
+Gitee（码云）|https://gitee.com/{user}/{repo}.git|1
+腾讯云 CNB|https://cnb.cool/{user}/{repo}.git|1
+CODING（腾讯）|https://e.coding.net/{user}/{user}/{repo}.git|1
+自定义（直接输入完整 URL）||0
+FZ_PLATFORM_EOF
+}
+
+# 平台凭据提示（HTTPS 推送需令牌时给出对应帮助）
+_fz_platform_hint() {
+    case "${1:-}" in
+        GitHub)     echo -e "  💡 HTTPS 推送需令牌: \033[36mhttps://github.com/settings/tokens\033[0m 或直接 \033[36mlogin\033[0m" ;;
+        GitLab)     echo -e "  💡 HTTPS 推送需令牌: \033[36mGitLab → Settings → Access Tokens\033[0m（勾选 write_repository）" ;;
+        Gitee*)     echo -e "  💡 HTTPS 推送需令牌: \033[36mGitee → 设置 → 私人令牌\033[0m" ;;
+        腾讯云*)    echo -e "  💡 HTTPS 推送需令牌: \033[36mCNB → 设置 → 访问令牌\033[0m" ;;
+        CODING*)    echo -e "  💡 HTTPS 推送需令牌: \033[36mCODING → 个人设置 → 访问令牌\033[0m" ;;
+    esac
+}
+
+# 按 URL 猜平台名（info/remote 展示用）
+_fz_platform_of() {
+    case "${1:-}" in
+        *github.com*)   echo "GitHub" ;;
+        *gitlab.com*)   echo "GitLab" ;;
+        *gitee.com*)    echo "Gitee" ;;
+        *cnb.cool*)     echo "腾讯云 CNB" ;;
+        *coding.net*)   echo "CODING" ;;
+        *)              echo "其他平台" ;;
+    esac
+}
+
+# 交互式拼装远程 URL（返回全局变量 FZ_REMOTE_URL，失败置空）
+_fz_build_url() {
+    FZ_REMOTE_URL=""
+    _fz_picker "选择推送平台: " "$(_fz_platforms | cut -d'|' -f1)"
+    local pidx="$FZ_PICK_RET"
+    [[ ! "$pidx" =~ ^[0-9]+$ ]] && return 1
+    local plat
+    plat=$(_fz_platforms | sed -n "${pidx}p" | cut -d'|' -f1)
+    local tmpl
+    tmpl=$(_fz_platforms | sed -n "${pidx}p" | cut -d'|' -f2)
+
+    if [ -z "$tmpl" ]; then
+        read -p "输入完整远程 URL: " FZ_REMOTE_URL
+        [ -n "$FZ_REMOTE_URL" ] || return 1
+        return 0
+    fi
+
+    read -p "用户名/组织名: " p_user
+    [ -z "$p_user" ] && return 1
+    read -p "仓库名: " p_repo
+    [ -z "$p_repo" ] && return 1
+
+    FZ_REMOTE_URL="${tmpl//\{user\}/$p_user}"
+    FZ_REMOTE_URL="${FZ_REMOTE_URL//\{repo\}/$p_repo}"
+    _fz_platform_hint "$plat"
+    return 0
+}
+
+# ══════════════════════════════════════════
+#  🔗  远程仓库管理（remote）v5.2 多平台升级
 # ══════════════════════════════════════════
 _remote_mgr() {
     _check_git_repo || return 1
     echo -e "\n\033[1;35m🔗 远程仓库管理\033[0m\n"
     echo -e "\033[36m当前远程地址:\033[0m"
     git remote -v
+    local cur_url
+    cur_url=$(git remote get-url origin 2>/dev/null)
+    [ -n "$cur_url" ] && echo -e "\033[90m识别平台: $(_fz_platform_of "$cur_url")\033[0m"
 
-    echo -e "\n  \033[33m1\033[0m. 设置/修改 origin"
+    echo -e "\n  \033[33m1\033[0m. 设置/修改 origin（可选平台模板快速生成）"
     echo -e "  \033[33m2\033[0m. 添加新的远程"
     echo -e "  \033[33m3\033[0m. 删除远程"
     echo -e "  \033[33m4\033[0m. 查看远程详情"
     echo -e "  \033[33mq\033[0m. 退出"
-    read -p "请选择: " op
+
+    _fz_picker "请选择: " "设置/修改 origin（平台模板）" "添加新的远程" "删除远程" "查看远程详情"
+    local op="$FZ_PICK_RET"
 
     case "$op" in
-        1) read -p "新的 origin URL: " new_url
-           git remote set-url origin "$new_url" 2>/dev/null || \
-           git remote add origin "$new_url"
-           echo -e "\033[32m✅ 已更新 origin\033[0m" ;;
-        2) read -p "远程名称: " r_name; read -p "远程 URL: " r_url
-           git remote add "$r_name" "$r_url" && echo -e "\033[32m✅ 已添加 $r_name\033[0m" ;;
-        3) read -p "要删除的远程名称: " r_del
+        1)
+            if _fz_build_url; then
+                git remote set-url origin "$FZ_REMOTE_URL" 2>/dev/null || \
+                git remote add origin "$FZ_REMOTE_URL"
+                echo -e "\033[32m✅ 已更新 origin → $FZ_REMOTE_URL\033[0m"
+            fi ;;
+        2)
+            local r_name
+            read -p "远程名称（如 upstream/coding）: " r_name
+            [ -z "$r_name" ] && return 1
+            if _fz_build_url; then
+                git remote add "$r_name" "$FZ_REMOTE_URL" && \
+                echo -e "\033[32m✅ 已添加 $r_name → $FZ_REMOTE_URL\033[0m"
+            fi ;;
+        3) local r_del
+           read -p "要删除的远程名称: " r_del
            git remote remove "$r_del" && echo -e "\033[32m✅ 已删除 $r_del\033[0m" ;;
         4) git remote show origin ;;
         *) return 0 ;;

@@ -14,11 +14,81 @@
 # ════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════
-#  📂  智能导航主入口（c）
-#  c              → 阶段1 书签选择
-#  c <书签名>     → 直接进入该书签的项目列表（阶段2）
-#  c <项目关键字> → 在所有书签中模糊匹配项目并直接进入
+#  🧭  通用选择器 _fz_picker（v5.2 新增）
+#  交互：↑/↓（或 j/k）移动指示器 → 回车确认；数字 1-9 直接跳选；
+#        其余单字符（q/b/0 等）作为快捷键透传给调用方
+#  退化：stdin 非终端（管道/脚本，如 smoke-test）时自动降级为
+#        数字输入模式，保证自动化测试与脚本调用兼容
+#  用法：_fz_picker "提示语" item1 item2 ...；返回值：
+#        0=回车/数字选定（全局 FZ_PICK_RET=序号，1 起）
+#        1=用户按了快捷键（FZ_PICK_RET=该字符）
+#  渲染：指示器行用反色（\033[7m），项内容支持内嵌 ANSI 码
 # ══════════════════════════════════════════
+_fz_picker() {
+    FZ_PICK_RET=""
+    _FZ_PICK_DRAWN=0
+    local prompt="${1:-}"; shift
+    local -a items=("$@")
+    local n=${#items[@]}
+    [ "$n" -eq 0 ] && return 1
+
+    # 非交互环境：退化为数字输入（管道喂入兼容）
+    if [ ! -t 0 ]; then
+        local sel
+        read -r sel || sel=""
+        if [ -z "$sel" ]; then
+            sel="${FZ_PICK_DEFAULT:-1}"      # 空行 = 默认项（阶段3 回车默认）
+        fi
+        if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "$n" ]; then
+            FZ_PICK_RET="$sel"
+            return 0
+        fi
+        FZ_PICK_RET="$sel"
+        return 1
+    fi
+
+    local cur=1 i key seq
+    while true; do
+        # 重绘：光标上移清屏（首轮不跳）
+        if [ "${_FZ_PICK_DRAWN:-0}" -eq 1 ]; then
+            printf '\033[%dA\033[J' "$((n + 1))"
+        fi
+        echo -e "${prompt}"
+        for ((i = 1; i <= n; i++)); do
+            if [ "$i" -eq "$cur" ]; then
+                echo -e "  \033[7m ❯ ${items[$((i - 1))]} \033[0m"
+            else
+                echo -e "    ${items[$((i - 1))]}"
+            fi
+        done
+        echo -e "  \033[90m↑/↓ 选择 · 回车确认 · 数字直选\033[0m"
+        _FZ_PICK_DRAWN=1
+
+        # 逐键读取；ESC 开头的转义序列再补读 2 字节
+        IFS= read -rsn1 key || { FZ_PICK_RET="q"; return 1; }
+        if [ "$key" = $'\x1b' ]; then
+            IFS= read -rsn2 -t 0.05 seq || seq=""
+            case "$seq" in
+                '[A') cur=$((cur > 1 ? cur - 1 : n)) ;;
+                '[B') cur=$((cur < n ? cur + 1 : 1)) ;;
+                *)    FZ_PICK_RET="q"; return 1 ;;   # 其他 ESC 序列当作退出
+            esac
+            continue
+        fi
+        case "$key" in
+            '') FZ_PICK_RET="$cur"; return 0 ;;                     # 回车确认
+            j)  cur=$((cur < n ? cur + 1 : 1)) ;;                   # j=下（vim 惯例）
+            k)  cur=$((cur > 1 ? cur - 1 : n)) ;;                   # k=上（vim 惯例）
+            [1-9])
+                if [ "$key" -le "$n" ]; then
+                    FZ_PICK_RET="$key"; return 0                    # 数字直选
+                fi
+                ;;
+            *)  FZ_PICK_RET="$key"; return 1 ;;                     # q/b/0 等透传
+        esac
+    done
+}
+
 _c_jump() {
     _bm_init
     _bm_load
@@ -62,7 +132,20 @@ _c_jump() {
         _bm_list || { echo ""; }
         echo -e "  \033[33m[+]\033[0m ➕ 添加新书签"
         echo -e "  \033[33m[q]\033[0m 退出"
-        read -p "请选择编号或操作: " choice
+
+        # v5.2 指示器选择：↑/↓+回车，数字/+/q 快捷键仍可用
+        local -a bm_items=()
+        local entry
+        for entry in "${FZ_BOOKMARKS[@]}"; do
+            local bn="${entry%%|*}" bpth="${entry#*|}"
+            local bm_mark=""
+            [ ! -d "$bpth" ] && bm_mark=" \033[31m[失效]\033[0m"
+            bm_items+=("${bn}${bm_mark}")
+        done
+        bm_items+=("➕ 添加新书签")
+
+        _fz_picker "请选择（↑/↓+回车，或输入编号 / + / q）: " "${bm_items[@]}"
+        local choice="$FZ_PICK_RET"
 
         case "$choice" in
             q|Q)
@@ -73,8 +156,11 @@ _c_jump() {
                 ;;
             *)
                 if [[ "$choice" =~ ^[0-9]+$ ]]; then
-                    _c_enter_bookmark "$choice"
-                    [ $? -eq 0 ] && return 0
+                    if [ "$choice" -eq ${#bm_items[@]} ]; then
+                        _c_add_bookmark
+                    elif _c_enter_bookmark "$choice"; then
+                        return 0
+                    fi
                 else
                     echo -e "\033[31m❌ 无效输入，请输入编号、+ 或 q\033[0m"
                 fi
@@ -150,10 +236,22 @@ _c_project_menu() {
         done
         echo -e "  \033[33m[b]\033[0m 返回书签选择"
         echo -e "  \033[33m[q]\033[0m 退出（停留在当前目录）"
-        read -p "请选择编号: " sel
+
+        # v5.2 指示器选择：首项=进入书签根目录（原 [0]），回车默认第一项
+        local -a pj_items=("📂 进入此目录（书签根目录，原[0]）")
+        local d mark
+        for d in "${dirs[@]}"; do
+            mark=""
+            [ -d "${d}/.git" ] && mark=" \033[32m✓\033[0m"
+            pj_items+=("${d}${mark}")
+        done
+        pj_items+=("↩ 返回书签选择（原[b]）")
+
+        _fz_picker "请选择（↑/↓+回车 / 编号 / 0 / b / q）: " "${pj_items[@]}"
+        local sel="$FZ_PICK_RET"
 
         case "$sel" in
-            0|q|Q)
+            q|Q|0)
                 cd "$bm_path" || return 1
                 echo -e "\033[32m📂 已进入: \033[1m${bm_path}\033[0m"
                 return 0
@@ -163,7 +261,10 @@ _c_project_menu() {
                 ;;
             *)
                 if [[ "$sel" =~ ^[0-9]+$ ]]; then
-                    local idx=$((sel - 1))
+                    if [ "$sel" -eq ${#pj_items[@]} ]; then
+                        return 2
+                    fi
+                    local idx=$((sel - 1))   # 项目在 dirs 中从 0 起（pj_items 首项占 1）
                     if [ $idx -ge 0 ] && [ $idx -lt ${#dirs[@]} ]; then
                         local proj="${dirs[$idx]}"
                         _c_project_ops "$bm_name" "$bm_path" "$proj"
@@ -191,14 +292,18 @@ _c_project_ops() {
     while true; do
         echo -e "\n\033[1;36m选中项目：\033[1m${proj}\033[0m"
         echo -e "你想做什么？"
-        echo -e "  \033[33m[1]\033[0m 进入该项目（回车默认）"
-        echo -e "  \033[33m[2]\033[0m 📦 移动本项目到其他书签（剪切）"
-        echo -e "  \033[33m[3]\033[0m 📋 复制本项目到其他书签（保留原件）"
         echo -e "  \033[33m[q]\033[0m 取消"
-        read -p "请选择 (回车=1): " op
+
+        # v5.2 指示器选择：回车默认第一项（进入项目）
+        local -a ops_items=("🚀 进入该项目（回车默认）"
+                            "📦 移动本项目到其他书签（剪切）"
+                            "📋 复制本项目到其他书签（保留原件）")
+        FZ_PICK_DEFAULT=1
+        _fz_picker "请选择（↑/↓+回车 / 编号 / q）: " "${ops_items[@]}"
+        local op="$FZ_PICK_RET"
 
         case "$op" in
-            1|"")
+            1|""|" ")
                 cd "$proj_path" || { echo -e "\033[31m❌ 无法进入: $proj_path\033[0m"; return 1; }
                 echo -e "\033[32m🚀 已进入项目: \033[1m${proj}\033[0m"
                 _git_status_summary
@@ -244,15 +349,15 @@ _bm_move_copy() {
     fi
 
     echo -e "\n\033[36m选择目标书签:\033[0m"
-    local i=1
+    local -a tgt_items=()
+    local entry
     for entry in "${targets[@]}"; do
-        local mark=""
-        [ ! -d "${entry#*|}" ] && mark=" \033[31m[失效]\033[0m"
-        echo -e "  \033[33m[$i]\033[0m ${entry%%|*} \033[90m(${entry#*|})\033[0m${mark}"
-        i=$((i + 1))
+        local tmark=""
+        [ ! -d "${entry#*|}" ] && tmark=" \033[31m[失效]\033[0m"
+        tgt_items+=("${entry%%|*} \033[90m(${entry#*|})\033[0m${tmark}")
     done
-    echo -e "  \033[33m[q]\033[0m 取消"
-    read -p "请选择: " tsel
+    _fz_picker "选择目标书签（↑/↓+回车 / 编号 / q 取消）: " "${tgt_items[@]}"
+    local tsel="$FZ_PICK_RET"
 
     if [[ ! "$tsel" =~ ^[0-9]+$ ]]; then
         echo -e "\033[90m已取消\033[0m"

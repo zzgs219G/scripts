@@ -84,6 +84,57 @@ _p_push() {
         fi
     fi
 
+    # v5.2 防冲突检测（计划书 9.x）：fetch 为只读操作，只获取远程
+    #     信息，绝不触碰本地代码与未提交改动
+    local _fz_force_push=0
+    local upstream_ref
+    upstream_ref=$(git rev-parse --abbrev-ref "@{u}" 2>/dev/null)
+    if [ -n "$upstream_ref" ] && git fetch --quiet 2>/dev/null; then
+        local behind
+        behind=$(git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)
+        if [ "$behind" -gt 0 ]; then
+            echo -e "\n\033[1;33m⚠️  本地落后远程 ${behind} 个提交（远程可能有流水线/定时任务自动提交）\033[0m"
+            echo -e "\n\033[1;36m  📜 远程新增提交:\033[0m"
+            git --no-pager log "HEAD..@{u}" --format="    %h %s" 2>/dev/null | head -10
+            [ "$behind" -gt 10 ] && echo -e "    \033[90m... 其余 $((behind - 10)) 条省略\033[0m"
+            echo -e "\n\033[1;36m  📄 这些提交涉及的文件:\033[0m"
+            git diff --name-status "HEAD" "@{u}" 2>/dev/null | head -15 | sed 's/^/    /'
+            git diff --stat "HEAD" "@{u}" 2>/dev/null | tail -n 1 | sed 's/^/    /'
+            local local_dirty
+            local_dirty=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$local_dirty" -gt 0 ]; then
+                echo -e "\n  \033[33m💡 你本地还有 ${local_dirty} 个文件的未提交改动（未 commit，不包含在上面的对比里）\033[0m"
+            fi
+            echo -e "\n  \033[33m[1]\033[0m 先拉取合并再推送（推荐，走智能 pull 保护流程）"
+            echo -e "  \033[33m[2]\033[0m 强制推送（以本地为准覆盖远程，安全模式 --force-with-lease）"
+            echo -e "  \033[33m[3]\033[0m 取消，我自己处理"
+            read -p "请选择 (回车=1): " _sync_choice
+            case "${_sync_choice:-1}" in
+                1)
+                    if _pull_now; then
+                        echo -e "\033[32m✅ 已同步远程，继续推送流程\033[0m"
+                    else
+                        echo -e "\033[33m💡 同步未完成（可能有冲突），执行 \033[36mfix\033[0m 可引导解决；解决后重新执行 \033[36mp\033[0m\033[0m"
+                        return 1
+                    fi
+                    ;;
+                2)
+                    read -p "⚠️ 强推将以本地为准覆盖远程，远程上那 ${behind} 个新提交会被覆盖，确认？(y/n): " _fconfirm
+                    if [[ "$_fconfirm" == "y" || "$_fconfirm" == "Y" ]]; then
+                        _fz_force_push=1
+                    else
+                        echo -e "\033[90m已取消\033[0m"
+                        return 1
+                    fi
+                    ;;
+                *)
+                    echo -e "\033[90m已取消，可先执行 \033[36mst\033[0m 查看状态、\033[36minfo\033[0m 查看详情\033[0m"
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+
     _git_auto_ignore
 
     local b_name=$(git branch --show-current)
@@ -166,11 +217,20 @@ _p_push() {
     }
 
     local push_ok=0
-    if ! git push origin "${b_name}" 2>/dev/null; then
+    local -a _push_args=(origin "${b_name}")
+    [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
+    if ! git push "${_push_args[@]}" 2>/dev/null; then
         echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
         git push -u origin "${b_name}" && push_ok=1
     else
         push_ok=1
+    fi
+
+    if [ "$push_ok" -eq 0 ]; then
+        echo -e "\033[31m❌ 推送被远程拒绝！\033[0m"
+        echo -e "\033[33m💡 常见原因：远程有你没有的新提交（如流水线自动任务）\033[0m"
+        echo -e "   👉 执行 \033[36mpull\033[0m 拉取合并后重新 \033[36mp\033[0m，或 \033[36mst\033[0m 查看状态"
+        return 1
     fi
 
     if [ "$push_ok" -eq 1 ]; then

@@ -19,17 +19,17 @@
 # ════════════════════════════════════════════════════════════
 
 # ── 版本号（v5.1 智能迭代：体验增强 + P0 修复）──
-FZ_VERSION="5.92"
+FZ_VERSION="5.93"
 
 # ── FZ_BASE：仅作 burn.sh 输出备用（v5.0 不再参与导航）──
-#     首次 setup/c 时自动导入为默认书签（见 modules/bookmark.sh _bm_init）
-if [ -d "/storage/emulated/0/常用" ]; then
+#     v5.2 跨平台化：Termux 保留原探测，电脑端自动用 ~/repos
+if [ -d "/storage/emulated/0" ] 2>/dev/null; then
     _FOUND_PATH=$(find /storage/emulated/0/常用/ -maxdepth 2 -type d -name "*克隆仓库*" 2>/dev/null | head -n 1)
     export FZ_BASE="${_FOUND_PATH:-/storage/emulated/0/常用/工作台😡/克隆仓库}"
 else
     export FZ_BASE="${HOME}/repos"
 fi
-mkdir -p "${FZ_BASE}"
+mkdir -p "${FZ_BASE}" 2>/dev/null
 unset _FOUND_PATH
 
 # AI commit message 功能开关（aikey 配置后自动开启并持久化到本文件）
@@ -123,10 +123,10 @@ alias h='echo -e "\033[1;36m
   \033[36mtrust\033[0m    信任当前目录（safe.directory）
   \033[36maikey\033[0m    配置 AI commit key（Anthropic）
 
-\033[1;33m── 📂 项目导航（书签制）──────────────────\033[0m
+\033[1;33m── 📂 项目导航（书签制·方向键）──────────\033[0m
   \033[36mbookmark\033[0m  管理书签（增删改查）
   \033[36mlsp\033[0m       所有书签项目状态总览
-  \033[36mc\033[0m         书签→项目→操作 交互导航
+  \033[36mc\033[0m         书签→项目→操作 交互导航（↑/↓+回车 选择）
   \033[36mc <名字>\033[0m   书签/项目关键字直达
   \033[36mcl\033[0m         交互式克隆（gh 仓库列表选择）
   \033[36mcl <仓库>\033[0m  直接克隆到当前目录/指定书签
@@ -146,8 +146,10 @@ alias h='echo -e "\033[1;36m
   \033[36mbclean\033[0m     清理已合并的本地分支
 
 \033[1;33m── 🚀 推送 & 发布 ───────────────────────\033[0m
-  \033[36mp\033[0m          推送，p skip可跳过CI构建
+  \033[36mp\033[0m          推送（自动检测远程新提交防冲突）
+  \033[36mp skip\033[0m     可跳过CI构建
   \033[36mp \"备注\"\033[0m   指定备注推送
+  \033[36mremote\033[0m     多平台远程管理（GitHub/GitLab/Gitee/CNB/CODING）
   \033[36mgsync\033[0m      安全同步远程（fetch+rebase）
   \033[36mpull\033[0m       拉取最新代码
   \033[36mok\033[0m         合并 dev→main 发布
