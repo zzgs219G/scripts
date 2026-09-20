@@ -14,7 +14,9 @@
 # ════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════
-#  🧭  通用选择器 _fz_picker（v5.2 新增）
+#  🧭  通用选择器 _fz_picker（v5.3 融合版）
+#  渲染：编号直接印在每行前缀上（如 "❯ 1 项目A"），一套菜单同时
+#        提供 ↑/↓ 指示器与数字直选，调用方不再自行打印编号列表
 #  交互：↑/↓（或 j/k）移动指示器 → 回车确认；数字 1-9 直接跳选；
 #        其余单字符（q/b/0 等）作为快捷键透传给调用方
 #  退化：stdin 非终端（管道/脚本，如 smoke-test）时自动降级为
@@ -56,12 +58,12 @@ _fz_picker() {
         echo -e "${prompt}"
         for ((i = 1; i <= n; i++)); do
             if [ "$i" -eq "$cur" ]; then
-                echo -e "  \033[7m ❯ ${items[$((i - 1))]} \033[0m"
+                echo -e "  \033[7m ❯ ${i}. ${items[$((i - 1))]} \033[0m"
             else
-                echo -e "    ${items[$((i - 1))]}"
+                echo -e "    \033[33m${i}.\033[0m ${items[$((i - 1))]}"
             fi
         done
-        echo -e "  \033[90m↑/↓ 选择 · 回车确认 · 数字直选\033[0m"
+        echo -e "  \033[90m↑/↓ 或数字选择 · 回车确认 · q 退出\033[0m"
         _FZ_PICK_DRAWN=1
 
         # 逐键读取；ESC 开头的转义序列再补读 2 字节
@@ -126,24 +128,19 @@ _c_jump() {
         return 1
     fi
 
-    # ── 阶段1：书签选择 ──
+    # ── 阶段1：书签选择（v5.3：编号前缀融合渲染，不再手工打印菜单）──
     while true; do
-        echo -e "\n\033[1;36m📂 工作台书签（可用 bookmark 管理）：\033[0m"
-        _bm_list || { echo ""; }
-        echo -e "  \033[33m[+]\033[0m ➕ 添加新书签"
-        echo -e "  \033[33m[q]\033[0m 退出"
-
-        # v5.2 指示器选择：↑/↓+回车，数字/+/q 快捷键仍可用
         local -a bm_items=()
         local entry
         for entry in "${FZ_BOOKMARKS[@]}"; do
             local bn="${entry%%|*}" bpth="${entry#*|}"
             local bm_mark=""
             [ ! -d "$bpth" ] && bm_mark=" \033[31m[失效]\033[0m"
-            bm_items+=("${bn}${bm_mark}")
+            bm_items+=("📁 \033[1m${bn}\033[0m \033[90m(${bpth})\033[0m${bm_mark}")
         done
         bm_items+=("➕ 添加新书签")
 
+        echo -e "\n\033[1;36m📂 工作台书签（可用 bookmark 管理）：\033[0m"
         _fz_picker "请选择（↑/↓+回车，或输入编号 / + / q）: " "${bm_items[@]}"
         local choice="$FZ_PICK_RET"
 
@@ -226,18 +223,8 @@ _c_project_menu() {
         done < <(command ls -d */ 2>/dev/null | sed 's#/$##')
 
         echo -e "\n\033[1;36m📁 当前目录：\033[1m${bm_name}\033[0m \033[90m(${bm_path})\033[0m"
-        echo -e "  \033[33m[0]\033[0m 📂 进入此目录（不选项目）"
-        local i=1
-        for d in "${dirs[@]}"; do
-            local mark=""
-            [ -d "${d}/.git" ] && mark=" \033[32m✓\033[0m"
-            echo -e "  \033[33m[$i]\033[0m ${d}${mark}"
-            i=$((i + 1))
-        done
-        echo -e "  \033[33m[b]\033[0m 返回书签选择"
-        echo -e "  \033[33m[q]\033[0m 退出（停留在当前目录）"
 
-        # v5.2 指示器选择：首项=进入书签根目录（原 [0]），回车默认第一项
+        # v5.3 编号前缀融合渲染：首项=进入书签根目录（原[0]），末项=返回书签
         local -a pj_items=("📂 进入此目录（书签根目录，原[0]）")
         local d mark
         for d in "${dirs[@]}"; do
@@ -291,10 +278,8 @@ _c_project_ops() {
 
     while true; do
         echo -e "\n\033[1;36m选中项目：\033[1m${proj}\033[0m"
-        echo -e "你想做什么？"
-        echo -e "  \033[33m[q]\033[0m 取消"
 
-        # v5.2 指示器选择：回车默认第一项（进入项目）
+        # v5.3 编号前缀融合渲染：回车默认第一项（进入项目）
         local -a ops_items=("🚀 进入该项目（回车默认）"
                             "📦 移动本项目到其他书签（剪切）"
                             "📋 复制本项目到其他书签（保留原件）")
@@ -348,13 +333,14 @@ _bm_move_copy() {
         return 1
     fi
 
-    echo -e "\n\033[36m选择目标书签:\033[0m"
+    # v5.3：目标书签也用编号前缀融合渲染（手工列表已并入 picker）
+    echo -e "\n\033[36m选择目标书签：\033[0m"
     local -a tgt_items=()
     local entry
     for entry in "${targets[@]}"; do
         local tmark=""
         [ ! -d "${entry#*|}" ] && tmark=" \033[31m[失效]\033[0m"
-        tgt_items+=("${entry%%|*} \033[90m(${entry#*|})\033[0m${tmark}")
+        tgt_items+=("📁 \033[1m${entry%%|*}\033[0m \033[90m(${entry#*|})\033[0m${tmark}")
     done
     _fz_picker "选择目标书签（↑/↓+回车 / 编号 / q 取消）: " "${tgt_items[@]}"
     local tsel="$FZ_PICK_RET"

@@ -298,12 +298,7 @@ _remote_mgr() {
     cur_url=$(git remote get-url origin 2>/dev/null)
     [ -n "$cur_url" ] && echo -e "\033[90m识别平台: $(_fz_platform_of "$cur_url")\033[0m"
 
-    echo -e "\n  \033[33m1\033[0m. 设置/修改 origin（可选平台模板快速生成）"
-    echo -e "  \033[33m2\033[0m. 添加新的远程"
-    echo -e "  \033[33m3\033[0m. 删除远程"
-    echo -e "  \033[33m4\033[0m. 查看远程详情"
-    echo -e "  \033[33mq\033[0m. 退出"
-
+    # v5.3 编号前缀融合渲染（原手工菜单已并入 picker）
     _fz_picker "请选择: " "设置/修改 origin（平台模板）" "添加新的远程" "删除远程" "查看远程详情"
     local op="$FZ_PICK_RET"
 
