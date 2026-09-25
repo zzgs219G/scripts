@@ -12,7 +12,7 @@
 #  🧹 kotlin(.kt/.kts) 文件自动过滤：注释（行/块/KDoc）+ import 导包
 #     被过滤的 import 去重为「依赖清单」附在打包末尾（仅影响打包 txt，源文件不受任何修改）
 #  输出路径：当前 Git 项目根目录的上一级 > 第一个书签目录 > FZ_BASE > HOME
-#  包含函数：_f_burn  _f_burn_help  _f_burn_tree  _f_burn_clip  _f_burn_scan  _f_burn_strip_kt_comments
+#  包含函数：_f_burn  _f_burn_help  _f_burn_tree  _f_burn_src_tree  _f_burn_entry_table  _f_burn_symbol_index  _f_burn_clip  _f_burn_scan  _f_burn_strip_kt_comments
 #  对应别名：f
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
@@ -22,11 +22,12 @@ _F_BURN_EXT='html|htm|js|jsx|ts|tsx|vue|astro|svelte|css|scss|sass|less|json|md|
 
 # ── 必须排除的垃圾文件（黑名单）──
 #  构建/依赖目录: .git/ .gradle/ .idea/ build/ node_modules/ dist/ bin/ out/
-#  锁与压缩产物:   *lock*  *.min.js  *.min.css
+#  锁与压缩产物:   *.lock *.lockfile *-lock.json *.min.js *.min.css（仅匹配锁文件名，勿再退回 .*lock.* 宽匹配——
+#                  那会连 util/Clock.kt、Block.kt、unlock.sh 一起误杀，静默漏打包）
 #  敏感凭据:       release.properties *.keystore *.jks *.key *.pem google-services.json
 #  资源文件瘦身:   res/ 与 assets/ 目录下所有 json/xml 不打包（Android 资源/矢量图/离线数据）
 #                  AndroidManifest.xml 位于 res/ 之外，不受影响，正常保留
-_F_BURN_BLACK='(^|/)(\.git|\.gradle|\.idea|build|node_modules|dist|bin|out)/|.*lock.*|\.min\.(js|css)$|release\.properties$|\.(keystore|jks|key|pem)$|google-services\.json$|(^|/)res/.*\.(json|xml)$|(^|/)assets/.*\.(json|xml)$'
+_F_BURN_BLACK='(^|/)(\.git|\.gradle|\.idea|build|node_modules|dist|bin|out)/|(^|/)[^/]*\.(lock|lockfile)$|(^|/)[^/]*-lock\.(json|ya?ml)$|\.min\.(js|css)$|release\.properties$|\.(keystore|jks|key|pem)$|google-services\.json$|(^|/)res/.*\.(json|xml)$|(^|/)assets/.*\.(json|xml)$'
 
 # 大文件阈值（KB）——超过则在注释里标注大小，但照常完整打包
 _F_BURN_BIG_KB=64
@@ -87,8 +88,17 @@ _f_burn() {
             "$(git config user.name 2>/dev/null || echo unknown)" \
             "$(date '+%Y-%m-%d %H:%M')" \
             "$(git branch --show-current 2>/dev/null || echo unknown)"
-        echo "/* ── 目录概览（3 层）── */"
+        echo "/* ── 仓库概览（仓库根算起 3 层）── */"
         _f_burn_tree
+        echo
+        echo "/* ── 源码结构树（业务包视角，按包层级，展开 3 层）── */"
+        _f_burn_scan "$MODE" "$MODULE" | _f_burn_src_tree 3
+        echo
+        echo "/* ── 入口表（Application / Activity / ViewModel / Singleton，抓骨架用）── */"
+        _f_burn_scan "$MODE" "$MODULE" | _f_burn_entry_table
+        echo
+        echo "/* ── 符号索引（TYPE/FUN/VAL → 文件:行号；行号为源文件行号，非本 txt 行号）── */"
+        _f_burn_scan "$MODE" "$MODULE" | _f_burn_symbol_index
         echo
     } > "$TMP_FILE"
 
@@ -255,13 +265,135 @@ _f_burn_scan() {
     sort
 }
 
-# ── 目录树注入（3 层，排除噪音目录，截断防爆）──
+# ── 目录树注入（仓库根算起 3 层，排除噪音目录，截断防爆）──
+# 注意：本函数只画到「仓库根算起 3 层」。Android 项目源码在第 7 层
+# （app/src/main/java/com/xixin/box/…），这里摸不到业务包，属正常——
+# 业务包骨架由下面的 _f_burn_src_tree 负责。
 _f_burn_tree() {
-    if command -v find >/dev/null 2>&1; then
-        find . -maxdepth 3 \
-            \( -path '*/.git' -o -path '*/node_modules' -o -path '*/build' -o -path '*/.gradle' -o -path '*/dist' -o -path '*/out' -o -path '*/.idea' \) -prune -o -print 2>/dev/null \
-        | sort | sed 's|^\./||' | head -300
+    command -v find >/dev/null 2>&1 || return 0
+    local rows total
+    rows=$(find . -maxdepth 3 \
+        \( -path '*/.git' -o -path '*/node_modules' -o -path '*/build' -o -path '*/.gradle' -o -path '*/dist' -o -path '*/out' -o -path '*/.idea' \) -prune -o -print 2>/dev/null \
+        | sort | sed 's|^\./||')
+    total=$(printf '%s\n' "$rows" | grep -c .)
+    printf '%s\n' "$rows" | head -300
+    if [ "$total" -gt 300 ]; then
+        echo "// ⚠️ 仓库概览已截断：共 ${total} 行，仅显示前 300 行"
     fi
+}
+
+# ── 源码结构树（业务包视角，写入 txt 头部供 AI 抓骨架）──
+# 从 _f_burn_scan 的文件列表自动探测业务源码根（*/src/main/{java,kotlin}/*），
+# 再按包层级折叠计数，列出每个包的直属文件数。
+# 与 _f_burn_tree 互补：那个从仓库根算深度、摸不到源码；这个才命中业务包。
+_f_burn_src_tree() {
+    local maxd="${1:-3}"
+    awk -F/ '
+    {
+        # 定位业务源码根：第 3 段起找 「src/main/java|kotlin」，idx 即语言目录段号
+        idx = 0
+        for (i = 3; i <= NF; i++)
+            if (($i == "java" || $i == "kotlin") && $(i-1) == "main" && $(i-2) == "src") { idx = i; break }
+        if (idx == 0) next
+        root = ""
+        for (i = 1; i <= idx; i++) root = root (i == 1 ? "" : "/") $i
+        rel = ""
+        for (i = idx + 1; i < NF; i++) rel = rel (rel == "" ? "" : "/") $i
+        if (rel == "") rel = "."
+        m++; d_root[m] = root; d_rel[m] = rel; roots[root] = 1
+    }
+    END {
+        # 每个根求公共前缀目录，把它折叠成「包根」，使顶层包直接可见
+        for (r in roots) {
+            first = 1; cp = ""
+            for (i = 1; i <= m; i++) {
+                if (d_root[i] != r) continue
+                if (first) { cp = d_rel[i]; first = 0; continue }
+                na = split(cp, A, "/"); nb = split(d_rel[i], B, "/")
+                lim = (na < nb ? na : nb); j = 0
+                while (j < lim && A[j+1] == B[j+1]) j++
+                cp = ""
+                for (t = 1; t <= j; t++) cp = cp (t == 1 ? "" : "/") A[t]
+            }
+            prefix[r] = cp
+        }
+        # 逐文件登记：包根直属总数 + 沿途各级目录计数
+        for (i = 1; i <= m; i++) {
+            r = d_root[i]; cp = prefix[r]; rel = d_rel[i]
+            pkgroot = (cp == "" || cp == ".") ? r : r "/" cp
+            disp = rel
+            if (cp != "" && cp != ".") {
+                if (rel == cp) disp = "."
+                else if (substr(rel, 1, length(cp) + 1) == cp "/") disp = substr(rel, length(cp) + 2)
+            }
+            total[pkgroot]++
+            if (disp != "." && disp != "") {
+                nd = split(disp, P, "/")
+                for (k = 1; k <= nd; k++) {
+                    key = ""
+                    for (t = 1; t <= k; t++) key = key (t == 1 ? "" : "/") P[t]
+                    cnt[pkgroot, key]++
+                }
+            }
+        }
+        for (kk in cnt) { split(kk, Q, SUBSEP); print Q[1] "\t" total[Q[1]] "\t" Q[2] "\t" cnt[kk] }
+    }' |
+    sort |
+    awk -F'\t' -v maxd="$maxd" '
+    BEGIN { first = 1 }
+    {
+        if ($1 != cur) { if (!first) printf "//\n"; first = 0; cur = $1; printf "//  ▸ %s/  共 %s 文件\n", $1, $2 }
+        depth = split($3, P, "/")
+        if (depth > maxd) { hidden++; next }
+        ind = ""; for (i = 1; i < depth; i++) ind = ind "  "
+        printf "//    %s%s/  %s 文件\n", ind, P[depth], $4
+    }
+    END { if (hidden > 0) printf "//  ⚠️ 更深层还有 %d 个目录未展开（可加大展开层数或直接看正文）\n", hidden }'
+}
+
+# ── 入口表（Application / Activity / ViewModel / Singleton，AI 抓骨架用）──
+# 一次 awk 处理整批文件（xargs），不逐文件起进程。
+# 判定：类名后缀（Application$ / Activity$ / ViewModel$）为主，
+#      超类型片段（": Application(" / ": BaseActivity("）为辅——规避 mawk 下 \b 不可靠。
+_f_burn_entry_table() {
+    grep -E '\.(kt|kts)$' | tr '\n' '\0' | xargs -0 -r awk '
+    FNR == 1 { f = FILENAME; sub(/^\.\//, "", f) }
+    /^[[:space:]]*(\/\/|\*|\/\*)/ { next }
+    /^[^[:space:]]/ {
+        line = $0
+        if (!match(line, /(class|object|interface)[[:space:]]+[^[:space:]({<:]+/)) next
+        s = substr(line, RSTART, RLENGTH)
+        n = split(s, A, /[[:space:]]+/)
+        nm = A[n]
+        rest = substr(line, RSTART + RLENGTH)
+        kind = ""
+        if (nm ~ /Application$/ || rest ~ /Application[[:space:](]/) kind = "Application"
+        else if (nm ~ /Activity$/ || rest ~ /(ComponentActivity|AppCompatActivity|FragmentActivity|BaseActivity|Activity)[[:space:](]/) kind = "Activity"
+        else if (nm ~ /ViewModel$/ || rest ~ /ViewModel[[:space:](]/) kind = "ViewModel"
+        else if (s ~ /^object[[:space:]]/) kind = "Singleton"
+        if (kind != "") print kind "\t" nm "\t" f
+    }' | sort -t$'\t' -k1,1 -k2,2
+}
+
+# ── 符号索引（全量声明 → 文件:行号，AI 不读正文即可定位任意符号）──
+# 输出：//  KIND  NAME  PATH:LINE，按文件聚集、文件内按行号升序。
+# ⚠️ LINE 是【源文件行号】，不是打包 txt 的行号（正文已被过滤：删注释/import/空行）。
+_f_burn_symbol_index() {
+    grep -E '\.(kt|kts)$' | tr '\n' '\0' | xargs -0 -r awk '
+    FNR == 1 { f = FILENAME; sub(/^\.\//, "", f) }
+    /^[[:space:]]*(\/\/|\*|\/\*)/ { next }
+    /^[^[:space:]]/ {
+        if (match($0, /(data[[:space:]]+|sealed[[:space:]]+|abstract[[:space:]]+|open[[:space:]]+|enum[[:space:]]+)*(class|object|interface)[[:space:]]+[^[:space:]({<:]+/)) {
+            s = substr($0, RSTART, RLENGTH); n = split(s, A, /[[:space:]]+/)
+            printf "%s\t%d\tTYPE\t%s\n", f, FNR, A[n]
+        } else if (match($0, /fun[[:space:]]+[^[:space:](]+/)) {
+            s = substr($0, RSTART, RLENGTH); sub(/^fun[[:space:]]+/, "", s)
+            printf "%s\t%d\tFUN\t%s\n", f, FNR, s
+        } else if (match($0, /(val|var)[[:space:]]+[^[:space:]({<:=]+/)) {
+            s = substr($0, RSTART, RLENGTH); n = split(s, A, /[[:space:]]+/)
+            printf "%s\t%d\tVAL\t%s\n", f, FNR, A[n]
+        }
+    }' | sort -t$'\t' -k1,1 -k2,2n | awk -F'\t' '{ printf "//  %-5s %s  %s:%s\n", $3, $4, $1, $2 }'
 }
 
 # ── 剪贴板：复制路径（多平台兜底，失败静默）──
@@ -290,6 +422,10 @@ _f_burn_help() {
 ────────────────────────────────────────
  🧹 kotlin(.kt/.kts) 注释自动过滤（含行内注释，字符串/URL 不误伤）
  🧹 kotlin(.kt/.kts) import 自动过滤，去重「依赖清单」附在打包末尾（AI 参考）
+ 🗂 头部含「仓库概览」+「源码结构树」+「入口表」+「符号索引」四段
+    · 源码结构树：按包层级列文件数，AI 一眼抓骨架
+    · 入口表：Application/Activity/ViewModel/Singleton 清单
+    · 符号索引：TYPE/FUN/VAL → 文件:行号（行号为源文件行号，便于直接定位）
  📄 文件头只保留 // 📄 [路径]（大文件另标注大小）
  大文件（>${_F_BURN_BIG_KB}KB）不丢弃，会完整打包并标注路径与大小
  输出路径: 项目上一级 > 第一个书签 > FZ_BASE > HOME
