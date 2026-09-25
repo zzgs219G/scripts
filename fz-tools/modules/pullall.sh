@@ -109,6 +109,8 @@ _pull_all() {
 # ══════════════════════════════════════════
 _pull_now() {
     _check_git_repo || return 1
+    # v5.100：支持 pull <远程>，让 p <远程> 的"先拉取"走对远程
+    local _want_remote="${1:-}"
     local b_name
     b_name=$(git branch --show-current 2>/dev/null)
     local upstream
@@ -121,6 +123,10 @@ _pull_now() {
         return 1
     fi
 
+    # 指定远程与上游不一致 → 改为显式 pull 该远程（不做隐式上游改写）
+    local _do_remote_pull=0
+    [ -n "$_want_remote" ] && [ "${upstream%%/*}" != "$_want_remote" ] && _do_remote_pull=1
+
     if [ -n "$(git status -s 2>/dev/null)" ]; then
         echo -e "\033[33m⚠️ 存在未提交变更，pull 前建议先 \033[36msave\033[0m 暂存\033[0m"
         read -p "仍要继续 pull？(y/n): " cont
@@ -132,7 +138,13 @@ _pull_now() {
 
     local before after
     before=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-    if ! git pull --quiet 2>&1; then
+    local _pull_cmd
+    if [ "$_do_remote_pull" -eq 1 ]; then
+        _pull_cmd=(git pull --quiet "$_want_remote" "$b_name")
+    else
+        _pull_cmd=(git pull --quiet)
+    fi
+    if ! "${_pull_cmd[@]}" 2>&1; then
         echo -e "\033[31m❌ 拉取失败！可能有冲突，执行 \033[36mfix\033[0m 引导解决\033[0m"
         return 1
     fi

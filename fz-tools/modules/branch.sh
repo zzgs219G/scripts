@@ -272,6 +272,7 @@ _main_branch() {
 # ══════════════════════════════════════════
 _fz_unrelated_history_guide() {
     local cur_br="${1:-$(git branch --show-current)}"
+    local r="${2:-origin}"
     echo -e "\n\033[1;33m🧭 检测到「本地新项目 vs 远程已有内容」\033[0m"
     echo -e "\033[90m远程仓库建库时可能自动生成了 README/.gitignore 等文件，\033[0m"
     echo -e "\033[90m与本地仓库没有共同历史，git 默认拒绝直接合并。\033[0m\n"
@@ -281,7 +282,9 @@ _fz_unrelated_history_guide() {
     read -p "请选择 (回车=1): " uh_choice
     case "${uh_choice:-1}" in
         1)
-            if git merge "origin/$cur_br" --allow-unrelated-histories --no-edit; then
+            # v5.100：合并/覆盖改为针对调用方指定的远程（旧版硬编码 origin，
+            #    p cnb 撞上 unrelated histories 时会去操作错误的远程）
+            if git merge "${r}/${cur_br}" --allow-unrelated-histories --no-edit; then
                 echo -e "\033[32m✅ 已合并远程历史，现在执行 \033[1mp\033[0m\033[32m 即可推送\033[0m"
             else
                 echo -e "\033[31m❌ 合并仍有冲突（多为 add/add 同名文件），执行 \033[36mfix\033[0m 引导解决\033[0m"
@@ -291,7 +294,7 @@ _fz_unrelated_history_guide() {
         2)
             read -p "⚠️ 确认覆盖远程？（远程原有文件将丢失）(y/n): " uh_ok
             if [[ "$uh_ok" == "y" || "$uh_ok" == "Y" ]]; then
-                if git push -u origin "$cur_br" --force; then
+                if git push -u "$r" "$cur_br" --force; then
                     echo -e "\033[32m✅ 已用本地覆盖远程并建立跟踪，之后 \033[1mp\033[0m\033[32m 正常使用\033[0m"
                 else
                     echo -e "\033[31m❌ 覆盖推送失败，检查网络/凭据后重试\033[0m"
@@ -301,6 +304,6 @@ _fz_unrelated_history_guide() {
                 echo -e "\033[90m已取消\033[0m"
             fi
             ;;
-        *) echo -e "\033[90m已取消。手动命令: git pull origin $cur_br --allow-unrelated-histories\033[0m" ;;
+        *) echo -e "\033[90m已取消。手动命令: git pull ${r} $cur_br --allow-unrelated-histories\033[0m" ;;
     esac
 }

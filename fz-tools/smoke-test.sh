@@ -209,7 +209,8 @@ assert "T8b 非书签内推送前置检查拦截" [ "$rc" -ne 0 ]
 cd "$BM1/projB"
 rm -f "$BM1/code_projB.txt"   # 清理 T7 炼化产物，恢复"无变更"场景
 out=$(_p_push 2>&1)
-assert "T8c 书签内无变更提示" grep -q "没有任何变更" <<<"$out"
+# v5.100：文案从含糊的"没有任何变更"改为明确说明（projB 无远程 → 未绑定提示）
+assert "T8c 书签内无变更时给出明确提示" grep -q "无需推送" <<<"$out"
 
 # ══════════════════════════════════════════
 echo ""
@@ -223,17 +224,75 @@ assert "T9b lsp 总览含项目" grep -q "projB" <<<"$out"
 
 # ══════════════════════════════════════════
 echo ""
+echo "══════════ T11 多远程推送基准（v5.100 核心回归）══════════"
+# 场景（用户真实报告）：项目同时绑 GitHub(origin) 与 CNB(cnb)，
+# 上游 @{u} 指向 cnb。本地在 cnb 已是最新、GitHub 还是旧版时按 p，
+# 旧版用 @{u} 判断 → ahead 恒为 0 → 假报"没有任何变更，无需推送"并
+# 直接 return，git push origin 从未执行，GitHub 永远停在旧版。
+
+REMOTE_ORIGIN="$TEST_ROOT/remote/origin-github.git"
+REMOTE_CNB="$TEST_ROOT/remote/cnb.git"
+git init -q --bare "$REMOTE_ORIGIN"
+git init -q --bare "$REMOTE_CNB"
+( cd "$REMOTE_CNB" && git symbolic-ref HEAD refs/heads/main ) 2>/dev/null || true
+( cd "$REMOTE_ORIGIN" && git symbolic-ref HEAD refs/heads/main ) 2>/dev/null || true
+
+mkdir -p "$BM2/multi"
+(
+  cd "$BM2/multi" && git init -q && git symbolic-ref HEAD refs/heads/main &&
+  git remote add cnb "$REMOTE_CNB" && git remote add origin "$REMOTE_ORIGIN" &&
+  printf 'build/\n' > .gitignore && echo v1 > f.txt && git add . && git commit -qm init &&
+  git push -q -u cnb main && git push -q origin main
+) >/dev/null 2>&1
+
+cd "$BM2/multi"
+assert "T11a 前置：上游指向 cnb（复现用户环境）" \
+    [ "$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null)" = "cnb/main" ]
+
+# 本地产生"最新版"提交，GitHub 仍是旧版 → 按 p（默认 origin）
+echo v2 > f.txt && git add . && git commit -qm latest >/dev/null 2>&1
+out=$(_p_push 2>&1)
+assert "T11b 不再假报「没有任何变更，无需推送」" \
+    bash -c '! grep -q "没有任何变更" <<<"$1"' _ "$out"
+assert "T11c GitHub(origin) 已真正被推送到最新" \
+    [ "$(git -C "$REMOTE_ORIGIN" rev-parse main 2>/dev/null)" = "$(git rev-parse HEAD)" ]
+assert "T11d 未静默改写上游（仍是 cnb/main）" \
+    [ "$(git rev-parse --abbrev-ref '@{u}')" = "cnb/main" ]
+assert "T11e 提示 cnb 仍需同步" \
+    bash -c 'grep -q "cnb" <<<"$1"' _ "$out"
+
+# 文档承诺：p "备注" 指定 commit message（v5.97 曾回归为"远程未绑定"报错）
+echo v3 > f.txt
+out=$(_p_push "修复登录bug" 2>&1)
+assert "T11f p \"备注\" 生效且不再报远程未绑定" \
+    bash -c '[ "$(git -C "$1" log -1 --format=%s)" = "修复登录bug" ] && ! grep -q "未绑定" <<<"$2"' \
+    _ "$BM2/multi" "$out"
+
+# 无变更且确已同步 → 明确报"已是最新"（而非误导文案）
+out=$(_p_push 2>&1)
+assert "T11g 确无新内容时明确提示已是最新" grep -q "已是最新" <<<"$out"
+
+# 上游为空场景（仅用 p cnb、从未建立跟踪）也须真推
+git checkout -q -b feature/x >/dev/null 2>&1
+echo n1 > n.txt && git add . && git commit -qm newbr >/dev/null 2>&1
+out=$(_p_push cnb 2>&1)
+assert "T11h 上游为空时首推新分支不假报" \
+    [ "$(git -C "$REMOTE_CNB" rev-parse feature/x 2>/dev/null)" = "$(git rev-parse HEAD)" ]
+
+# ══════════════════════════════════════════
+echo ""
 echo "══════════ T10 模块加载完整性 ══════════"
 
 missing=0
 for fn in _bm_init _bm_load _bm_add _bm_remove _bm_get_path _bm_rename _bm_current _bookmark_mgr \
           _c_jump _c_project_menu _bm_move_copy _ls_projects _st_status \
           _clone_repo _clone_direct _clone_interactive _pull_all \
-          _f_burn _p_push _branch_mgr _ok_merge _tag_mgr _repo_info; do
+          _f_burn _p_push _branch_mgr _ok_merge _tag_mgr _repo_info \
+          _fz_parse_push_args _fz_ensure_upstream _fz_other_remotes_hint; do
     declare -F "$fn" >/dev/null 2>&1 || { echo "  ❌ 缺少函数: $fn"; missing=$((missing + 1)); }
 done
 if [ "$missing" -eq 0 ]; then
-    PASS=$((PASS + 1)); echo "  ✅ 全部 24 个核心函数已加载"
+    PASS=$((PASS + 1)); echo "  ✅ 全部 27 个核心函数已加载"
 else
     FAIL=$((FAIL + 1)); FAIL_NAMES+=("模块加载完整性（缺 $missing 个函数）")
 fi

@@ -2,8 +2,14 @@
 # ════════════════════════════════════════════════════════════
 #  焚诀·Git 工作流 — push.sh（推送模块）
 #  职责：自动暂存所有变更 / AI 生成 commit message / 推送远端
-#  包含函数：_p_push  _ai_commit_msg
-#  对应别名：p（支持 skip 跳过 CI）
+#  包含函数：_p_push  _ai_commit_msg  _fz_parse_push_args
+#            _fz_ensure_upstream  _fz_other_remotes_hint  _fz_push_rejected_guide
+#  对应别名：p（支持 skip 跳过 CI / 远程名 / "备注"）
+#  ⚠️ v5.100 核心修复（多远程假"无需推送"）：
+#     判断基准从 @{u}（当前分支上游）改为「本次目标远程 $_fz_remote/$b_name」。
+#     旧版当上游指向另一个远程（如 cnb）时，ahead 恒为 0 → 假报
+#     "没有任何变更，无需推送"并直接 return，git push origin 从未执行，
+#     GitHub 永远停在旧版。
 #  ⚠️ v4.0 适配：scripts 仓库的版本号自增逻辑改为
 #     定位 fz-tools/fzgit.sh（兼容旧根目录位置）
 #  由 fz-tools/fzgit.sh 自动加载
@@ -69,21 +75,68 @@ print(data['content'][0]['text'].strip())
 }
 
 # ══════════════════════════════════════════
+#  🧩  p 参数解析（v5.100 修复 p "备注" 失效）
+#  支持顺序自由组合：
+#    p                  p cnb            p "备注"
+#    p skip             p cnb skip       p skip "备注"
+#    p -r cnb -m "备注"
+#  规则：第一个非选项参数 —— 是已绑定远程名 → 视为远程，否则视为 commit 备注。
+#       （"origin" 例外：即使未绑定也按远程处理，好给出明确报错）
+#  输出：FZ_PARSE_REMOTE / FZ_PARSE_MSG / FZ_PARSE_SKIP / FZ_PARSE_REMOTE_MISSING
+# ══════════════════════════════════════════
+_fz_parse_push_args() {
+    FZ_PARSE_REMOTE="origin"
+    FZ_PARSE_MSG=""
+    FZ_PARSE_SKIP=0
+    FZ_PARSE_REMOTE_MISSING=0
+    local explicit_r="" want_msg=""
+    local expect_r=0 expect_m=0 arg
+    for arg in "$@"; do
+        [ -z "$arg" ] && continue
+        if [ "$expect_r" -eq 1 ]; then explicit_r="$arg"; expect_r=0; continue; fi
+        if [ "$expect_m" -eq 1 ]; then want_msg="$arg";    expect_m=0; continue; fi
+        case "$arg" in
+            -r|--remote) expect_r=1 ;;
+            -m|--msg)    expect_m=1 ;;
+            skip)        FZ_PARSE_SKIP=1 ;;
+            -*)          ;;   # 未知选项忽略，保持向后兼容
+            *)
+                if git remote get-url "$arg" >/dev/null 2>&1 || [ "$arg" = "origin" ]; then
+                    [ -z "$explicit_r" ] && explicit_r="$arg"
+                elif [ -z "$want_msg" ]; then
+                    want_msg="$arg"     # 不是已绑定远程 → 当作 commit 备注
+                fi
+                ;;
+        esac
+    done
+    FZ_PARSE_MSG="$want_msg"
+    if [ -n "$explicit_r" ]; then
+        FZ_PARSE_REMOTE="$explicit_r"
+        git remote get-url "$explicit_r" >/dev/null 2>&1 || FZ_PARSE_REMOTE_MISSING=1
+    fi
+    return 0
+}
+
+# ══════════════════════════════════════════
 #  🚀  智能推送（p）
 # ══════════════════════════════════════════
 _p_push() {
     _check_git_repo || return 1
 
+    # v5.100：参数解析接入（修复 p "备注" 被误判为远程名而报错）
+    _fz_parse_push_args "$@"
+    if [ "$FZ_PARSE_REMOTE_MISSING" -eq 1 ]; then
+        echo -e "\033[31m❌ 远程 \"${FZ_PARSE_REMOTE}\" 未绑定，执行 \033[1mremote\033[0m\033[31m 可绑定\033[0m"
+        return 1
+    fi
+    local _fz_remote="$FZ_PARSE_REMOTE"
+    local _fz_msg_arg="$FZ_PARSE_MSG"
+    local skip_ci_flag=""
+    [ "$FZ_PARSE_SKIP" -eq 1 ] && skip_ci_flag=" [skip ci]"
+
     # v5.97：p 远程名 —— 一键推送到指定远程（如 p cnb / p gitee）
     # 不带参数 = 走 origin（默认行为不变）
-    local _fz_remote="origin"
-    if [ -n "${1:-}" ] && [ "${1:-}" != "skip" ] && [[ "${1:-}" != -* ]]; then
-        _fz_remote="$1"
-        set -- "${2:-}"
-        if ! git remote get-url "$_fz_remote" >/dev/null 2>&1; then
-            echo -e "\033[31m❌ 远程 \"${_fz_remote}\" 未绑定，执行 \033[1mremote\033[0m\033[31m 可绑定\033[0m"
-            return 1
-        fi
+    if [ "$_fz_remote" != "origin" ]; then
         echo -e "\033[36m🎯 本次推送到远程: \033[1m${_fz_remote}\033[0m \033[90m($(git remote get-url "$_fz_remote"))\033[0m"
     fi
 
@@ -97,22 +150,31 @@ _p_push() {
         fi
     fi
 
-    # v5.2 防冲突检测（计划书 9.x）：fetch 为只读操作，只获取远程
-    #     信息，绝不触碰本地代码与未提交改动
+    local b_name
+    b_name=$(git branch --show-current)
+
+    # v5.100 核心修复：防冲突检测改为以「本次推送的目标远程」为基准
+    #  旧版用 @{u}（当前分支上游）：当上游指向另一个远程（如 cnb）时，
+    #  落后检测与"是否需要推送"全都看错了对象，导致 p origin 假报
+    #  "没有任何变更，无需推送"并直接返回，git push origin 从未执行。
+    #  fetch 仍为只读操作，只获取远程信息，绝不触碰本地代码与未提交改动。
     local _fz_force_push=0
-    local upstream_ref
-    upstream_ref=$(git rev-parse --abbrev-ref "@{u}" 2>/dev/null)
-    if [ -n "$upstream_ref" ] && git fetch --quiet 2>/dev/null; then
+    local _fz_target_ref="$_fz_remote/$b_name"
+    local _fz_have_target=0
+    if git fetch --quiet "$_fz_remote" 2>/dev/null; then
+        git rev-parse --verify --quiet "$_fz_target_ref" >/dev/null 2>&1 && _fz_have_target=1
+    fi
+    if [ "$_fz_have_target" -eq 1 ]; then
         local behind
-        behind=$(git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)
+        behind=$(git rev-list --count "HEAD..$_fz_target_ref" 2>/dev/null || echo 0)
         if [ "$behind" -gt 0 ]; then
-            echo -e "\n\033[1;33m⚠️  本地落后远程 ${behind} 个提交（远程可能有流水线/定时任务自动提交）\033[0m"
+            echo -e "\n\033[1;33m⚠️  本地落后远程 [${_fz_remote}] ${behind} 个提交（远程可能有流水线/定时任务自动提交）\033[0m"
             echo -e "\n\033[1;36m  📜 远程新增提交:\033[0m"
-            git --no-pager log "HEAD..@{u}" --format="    %h %s" 2>/dev/null | head -10
+            git --no-pager log "HEAD..$_fz_target_ref" --format="    %h %s" 2>/dev/null | head -10
             [ "$behind" -gt 10 ] && echo -e "    \033[90m... 其余 $((behind - 10)) 条省略\033[0m"
             echo -e "\n\033[1;36m  📄 这些提交涉及的文件:\033[0m"
-            git diff --name-status "HEAD" "@{u}" 2>/dev/null | head -15 | sed 's/^/    /'
-            git diff --stat "HEAD" "@{u}" 2>/dev/null | tail -n 1 | sed 's/^/    /'
+            git diff --name-status "HEAD" "$_fz_target_ref" 2>/dev/null | head -15 | sed 's/^/    /'
+            git diff --stat "HEAD" "$_fz_target_ref" 2>/dev/null | tail -n 1 | sed 's/^/    /'
             local local_dirty
             local_dirty=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
             if [ "$local_dirty" -gt 0 ]; then
@@ -124,7 +186,7 @@ _p_push() {
             read -p "请选择 (回车=1): " _sync_choice
             case "${_sync_choice:-1}" in
                 1)
-                    if _pull_now; then
+                    if _pull_now "$_fz_remote"; then
                         echo -e "\033[32m✅ 已同步远程，继续推送流程\033[0m"
                     else
                         echo -e "\033[33m💡 同步未完成（可能有冲突），执行 \033[36mfix\033[0m 可引导解决；解决后重新执行 \033[36mp\033[0m\033[0m"
@@ -150,27 +212,48 @@ _p_push() {
 
     _git_auto_ignore
 
-    local b_name=$(git branch --show-current)
-
     echo -e "\033[36m📋 变更文件:\033[0m"
     git status -s
 
     local change_count
     change_count=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
 
+    # v5.100 核心修复：判定基准从 @{u} 改为「本次目标远程 $_fz_target_ref」
+    #   · 目标远程尚无该分支 → 首推，必须推
+    #   · 目标远程落后 → 存在未推送提交，必须推
+    #  （旧版看 @{u}：上游指向 cnb 时此处恒为 0，于是假报"无需推送"直接 return）
+    local _fz_ahead=0
+    if [ "$_fz_have_target" -eq 1 ]; then
+        _fz_ahead=$(git rev-list --count "$_fz_target_ref..HEAD" 2>/dev/null || echo 0)
+    fi
+
     if [ "$change_count" -eq 0 ]; then
-        local ahead
-        ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
-        if [ "$ahead" -gt 0 ]; then
-            echo -e "\033[33m📤 检测到 $ahead 个未推送的提交，直接推送...\033[0m"
-            if git push "$_fz_remote" "$b_name"; then
+        if ! git remote get-url "$_fz_remote" >/dev/null 2>&1; then
+            echo -e "\033[33m⚠️ 没有本地变更，且远程 [${_fz_remote}] 未绑定，无需推送\033[0m"
+            echo -e "\033[90m💡 执行 \033[36mremote\033[0m\033[90m 绑定远程后再推送\033[0m"
+            return 0
+        elif [ "$_fz_have_target" -eq 0 ]; then
+            echo -e "\033[33m📤 远程 [${_fz_remote}] 还没有 ${b_name} 分支，执行首次推送...\033[0m"
+            if git push -u "$_fz_remote" "$b_name"; then
                 echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")\033[0m]\033[0m"
             else
                 _fz_push_rejected_guide "$_fz_remote" "$b_name"
+                return 1
+            fi
+        elif [ "$_fz_ahead" -gt 0 ]; then
+            echo -e "\033[33m📤 检测到 ${_fz_ahead} 个未推送的提交，直接推送...\033[0m"
+            local -a _fz_fast_args=("$_fz_remote" "$b_name")
+            [ "$_fz_force_push" -eq 1 ] && _fz_fast_args+=("--force-with-lease")
+            if git push "${_fz_fast_args[@]}"; then
+                echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")\033[0m]\033[0m"
+            else
+                _fz_push_rejected_guide "$_fz_remote" "$b_name"
+                return 1
             fi
         else
-            echo -e "\033[33m⚠️ 没有任何变更，无需推送\033[0m"
+            echo -e "\033[32m✅ 已是最新：远程 [${_fz_remote}] 的 ${b_name} 与本地一致，无需推送\033[0m"
         fi
+        _fz_other_remotes_hint "$_fz_remote" "$b_name"
         return 0
     fi
 
@@ -198,17 +281,9 @@ _p_push() {
 
     git add .
 
-    local skip_ci_flag=""
-
-    # 如果第一个参数输入的是 skip，就做好标记，并把变量换成第 2 个参数
-    if [ "${1:-}" = "skip" ]; then
-        skip_ci_flag=" [skip ci]"
-        set -- "${2:-}"
-    fi
-
     local msg=""
-    if [ -n "${1:-}" ]; then
-        msg="${1:-}"
+    if [ -n "${_fz_msg_arg:-}" ]; then
+        msg="${_fz_msg_arg}"
     elif [ -n "$FZ_AI_KEY" ] && command -v curl &>/dev/null; then
         msg=$(_ai_commit_msg)
         if [ -n "$msg" ]; then
@@ -231,39 +306,66 @@ _p_push() {
         echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
     }
 
-    local push_ok=0
-    local -a _push_args=("${_fz_remote}" "${b_name}")
+    local -a _push_args=("$_fz_remote" "$b_name")
     [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
+    # v5.100：push 只尝试一次，失败即进入统一诊断。
+    #   旧版此处会再 `git push -u` 重试——那会把当前分支的上游静默改写成本次
+    #   远程（缺陷 1 的成因之一）；现由 _fz_ensure_upstream 收敛为
+    #   「仅当尚无上游时才建立跟踪」。
+    #   另：不再做「--amend 补 [skip ci] 后重试」——那会擅自改写用户的提交
+    #   （HEAD 为 merge 提交时更会破坏其父节点），风险远大于收益。
+    #   首推场景 `git push <远程> <分支>` 本身即可创建远程分支，无需 -u。
     if ! git push "${_push_args[@]}" 2>/dev/null; then
-        echo -e "\033[33m🔧 尝试设置上游分支...\033[0m"
-        if git push -u "${_fz_remote}" "${b_name}" 2>/dev/null; then
-            push_ok=1
-        else
-            # v5.99：被拒不再甩一句"去 pull"就结束，进入统一引导
-            _fz_push_rejected_guide "$_fz_remote" "$b_name"
-            return 1
-        fi
-    else
-        push_ok=1
-    fi
-
-    if [ "$push_ok" -eq 0 ]; then
-        echo -e "\033[31m❌ 推送被远程拒绝！\033[0m"
-        echo -e "\033[33m💡 常见原因：远程有你没有的新提交（如流水线自动任务）\033[0m"
-        echo -e "   👉 执行 \033[36mpull\033[0m 拉取合并后重新 \033[36mp\033[0m，或 \033[36mst\033[0m 查看状态"
+        # v5.99：被拒不再甩一句"去 pull"就结束，进入统一引导
+        _fz_push_rejected_guide "$_fz_remote" "$b_name"
         return 1
     fi
 
-    if [ "$push_ok" -eq 1 ]; then
-        local remote_name
-        remote_name=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
-        echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m${remote_name}\033[0m\033[32m] | ${change_count} 个文件变更\033[0m"
-        if [ -n "$fz_file" ]; then
-            echo -e "\033[35m💡 远程已更新至 v${next_version}，执行 \033[1mup\033[0m\033[35m 可更新本地环境\033[0m"
-        fi
-    else
-        echo -e "\033[31m❌ 推送失败！\033[0m"
+    # v5.100：推送成功且当前分支尚无上游时才建立跟踪；已有上游绝不改写
+    _fz_ensure_upstream "$_fz_remote" "$b_name"
+
+    local remote_name
+    remote_name=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
+    echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m${remote_name}\033[0m\033[32m] | ${change_count} 个文件变更\033[0m"
+    if [ -n "$fz_file" ]; then
+        echo -e "\033[35m💡 远程已更新至 v${next_version}，执行 \033[1mup\033[0m\033[35m 可更新本地环境\033[0m"
     fi
+    _fz_other_remotes_hint "$_fz_remote" "$b_name"
+}
+
+# ══════════════════════════════════════════
+#  🌿  按需建立上游跟踪（v5.100 新增）
+#  仅当当前分支还没有上游时设置；已有上游绝不改写，
+#  避免把 origin 静默换成 cnb（旧版 git push -u 的副作用）
+# ══════════════════════════════════════════
+_fz_ensure_upstream() {
+    local r="${1:-origin}" b="${2:-$(git branch --show-current)}"
+    git rev-parse --abbrev-ref "@{u}" >/dev/null 2>&1 && return 0
+    git branch --set-upstream-to="${r}/${b}" "$b" >/dev/null 2>&1 \
+        && echo -e "\033[90m🔗 已建立跟踪: ${b} → ${r}/${b}\033[0m"
+    return 0
+}
+
+# ══════════════════════════════════════════
+#  📡  多远程未同步提示（v5.100 新增）
+#  推完目标远程后，若其他远程该分支仍落后 / 尚无该分支，仅提示不自动推，
+#  避免用户以为"推了一次就全平台同步"（本次 bug 的认知来源）
+# ══════════════════════════════════════════
+_fz_other_remotes_hint() {
+    local target="$1" b="${2:-$(git branch --show-current)}" r
+    for r in $(git remote 2>/dev/null); do
+        [ "$r" = "$target" ] && continue
+        if ! git rev-parse --verify --quiet "$r/$b" >/dev/null 2>&1; then
+            # 本地无该远程记录时不断言"没有"，只提示可能未同步
+            # （该远程可能尚未 fetch，避免误报）
+            echo -e "\033[90m📡 远程 [${r}] 未同步（本地无记录），如需推送: \033[36mp ${r}\033[0m"
+        elif ! git merge-base --is-ancestor HEAD "$r/$b" 2>/dev/null; then
+            local n
+            n=$(git rev-list --count "$r/$b..HEAD" 2>/dev/null || echo 0)
+            [ "$n" -gt 0 ] && echo -e "\033[90m📡 远程 [${r}] 还落后 ${n} 个提交，如需同步: \033[36mp ${r}\033[0m"
+        fi
+    done
+    return 0
 }
 
 # ══════════════════════════════════════════
@@ -284,7 +386,7 @@ _fz_push_rejected_guide() {
     if git rev-parse --verify --quiet "$_fz_remote/$b_name" >/dev/null 2>&1 \
         && ! git merge-base --quiet HEAD "$_fz_remote/$b_name" 2>/dev/null; then
         echo -e "\033[1;33m诊断结果：远程已有内容，但与本地没有任何共同历史\033[0m"
-        _fz_unrelated_history_guide "$b_name"
+        _fz_unrelated_history_guide "$b_name" "$_fz_remote"
         return
     fi
 
@@ -294,9 +396,9 @@ _fz_push_rejected_guide() {
     if [ "$behind" -gt 0 ]; then
         echo -e "\033[1;33m诊断结果：本地落后远程 $behind 个提交\033[0m"
         echo -e "\033[36m👉 自动执行安全拉取（pull 保护流程）...\033[0m"
-        if _pull_now; then
+        if _pull_now "$_fz_remote"; then
             echo -e "\033[36m👉 已同步，重新推送...\033[0m"
-            git push -u "$_fz_remote" "$b_name" \
+            git push "$_fz_remote" "$b_name" \
                 && echo -e "\033[32m✅ 推送成功\033[0m" \
                 || echo -e "\033[31m❌ 仍失败，执行 \033[36mfix\033[0m 排查\033[0m"
         fi
