@@ -51,6 +51,12 @@ _fz_picker() {
 
     local cur=1 i key seq
     _FZ_PICK_N=$n
+    # v5.101 多位数编号缓冲：解决"11 个目录想输 11，一敲 1 就进了项目 1"。
+    # 旧版 [1-9) 分支单键即时 return，输入 1 的瞬间就锁死选项，第二个 1
+    # 永远敲不进去，且交互模式下编号 >= 10 根本无法选中。
+    # 现改为：数字先进缓冲区，只有确认不存在更长的合法编号时才立即生效
+    # （9 项菜单输 1 依旧秒选，11 项菜单输 1 会等续输）。
+    local _FZ_PICK_BUF=""
     while true; do
         if [ "${_FZ_PICK_DRAWN:-0}" -eq 1 ]; then
             # v5.96 修复：上下移动闪烁。
@@ -124,6 +130,7 @@ _fz_picker() {
         IFS= read -rsn1 key || { FZ_PICK_RET="q"; return 1; }
         if [ "$key" = $'\x1b' ]; then
             local seq=""
+            _FZ_PICK_BUF=""                     # v5.101：ESC 放弃编号缓冲
             while IFS= read -rsn1 -t 0.25 _fz_c; do
                 seq+="${_fz_c}"
                 # 方向键序列已完整（ESC [ 单字母 / ESC O 单字母），立即处理
@@ -138,15 +145,61 @@ _fz_picker() {
             # 截断序列，二者都按原行为当作退出
             FZ_PICK_RET="q"; return 1
         fi
+        # ── 单键行为表（v5.101）──
+        # 数字  → 进缓冲；确认无更长合法编号时才立即选定，否则等续输
+        # 回车  → 缓冲非空 = 提交缓冲编号；缓冲空 = 确认当前指示器
+        # 退格  → 缓冲退一位；缓冲已空则退格也按"确认当前指示器"
+        # ESC   → 放弃缓冲（并终止菜单，按退出处理）
         case "$key" in
-            '') FZ_PICK_RET="$cur"; return 0 ;;                     # 回车确认
-            j)  cur=$((cur < n ? cur + 1 : 1)) ;;                   # j=下（vim 惯例）
-            k)  cur=$((cur > 1 ? cur - 1 : n)) ;;                   # k=上（vim 惯例）
-            [1-9])
-                if [ "$key" -le "$n" ]; then
-                    FZ_PICK_RET="$key"; return 0                    # 数字直选
+            $'\x7f'|$'\x08')
+                if [ -n "$_FZ_PICK_BUF" ]; then
+                    _FZ_PICK_BUF="${_FZ_PICK_BUF:0:${#_FZ_PICK_BUF}-1}"
+                    _fz_picker_prompt
+                    continue
+                fi
+                FZ_PICK_RET="$cur"; return 0
+                ;;
+            $'\x1b')
+                _FZ_PICK_BUF=""
+                FZ_PICK_RET="q"; return 1
+                ;;
+            [0-9])
+                # v5.101 前导 0 处理：缓冲为空时按 0 = 各菜单保留快捷键
+                # （阶段2 "0" = 进入书签根目录），不能被数字分支吞掉；
+                # 缓冲非空时的 0 是编号续位（输 "10" 的末位），必须放行。
+                if [ -z "$_FZ_PICK_BUF" ] && [ "$key" = "0" ]; then
+                    FZ_PICK_RET="0"; return 1
+                fi
+                _FZ_PICK_BUF+="$key"
+                # 缓冲前导 0 归一：0007 → 7
+                _FZ_PICK_BUF="${_FZ_PICK_BUF#"${_FZ_PICK_BUF%%[1-9]*}"}"
+                local bufval=$((10#$_FZ_PICK_BUF))
+                _fz_picker_prompt
+                # 已无更长的合法编号（bufval*10 > n）→ 立即选定，避免等回车
+                if [ $((bufval * 10)) -gt "$n" ]; then
+                    if [ "$bufval" -ge 1 ] && [ "$bufval" -le "$n" ]; then
+                        FZ_PICK_RET="$_FZ_PICK_BUF"; return 0
+                    fi
+                    # 越界：回滚该位，允许继续修正
+                    _FZ_PICK_BUF="${_FZ_PICK_BUF:0:${#_FZ_PICK_BUF}-1}"
+                    _fz_picker_prompt
                 fi
                 ;;
+            $'\r'|$'\n'|'')
+                if [ -n "$_FZ_PICK_BUF" ]; then
+                    local bval=$((10#$_FZ_PICK_BUF))
+                    if [ "$bval" -ge 1 ] && [ "$bval" -le "$n" ]; then
+                        FZ_PICK_RET="$_FZ_PICK_BUF"; return 0
+                    fi
+                    echo -e "\033[31m❌ 编号 ${_FZ_PICK_BUF} 无效（1-${n}）\033[0m"
+                    _FZ_PICK_BUF=""
+                    _fz_picker_prompt
+                    continue
+                fi
+                FZ_PICK_RET="$cur"; return 0
+                ;;
+            j)  cur=$((cur < n ? cur + 1 : 1)) ;;
+            k)  cur=$((cur > 1 ? cur - 1 : n)) ;;
             *)  FZ_PICK_RET="$key"; return 1 ;;                     # q/b/0 等透传
         esac
     done
@@ -167,6 +220,20 @@ _fz_picker_paint_row() {
     fi
     local up=$((_FZ_PICK_N + 2 - i))
     printf '\r\033[%dA\033[2K%b\r\033[%dB' "$up" "$row" "$up"
+}
+
+# 内部辅助：重绘底部提示行（v5.101 编号缓冲回显）
+# 光标位于提示行下一行（行首），故先 \r 上移 1 行擦除，再原地重写。
+# 缓冲为空时恢复默认提示语；非空时显示"编号: 11▌ 回车确认"，让用户
+# 明确知道"输入 1 已经被接住了，正在等你敲第二个 1"。
+_fz_picker_prompt() {
+    local line
+    if [ -n "${_FZ_PICK_BUF:-}" ]; then
+        line="  \033[1;33m编号: ${_FZ_PICK_BUF}▌\033[0m \033[90m· 回车确认 · 退格修正\033[0m"
+    else
+        line="  \033[90m↑/↓ 或数字选择 · 回车确认 · q 退出\033[0m"
+    fi
+    printf '\r\033[1A\033[2K%b\r\033[1B' "$line"
 }
 
 _c_jump() {

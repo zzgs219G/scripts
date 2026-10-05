@@ -127,6 +127,25 @@ assert "T3d 项目关键字模糊直达" [ "$PWD" = "$BM1/projA" ]
 printf "1\nb\nq\n" | _c_jump >/dev/null 2>&1
 assert "T3e [b] 返回书签选择后 [q] 退出" [ $? -eq 0 ]
 
+# ── T3g 多位数编号（v5.101 回归：11 个目录时想输 11，旧版一敲 1 就进项目 1）──
+# 构造 11 个项目，使菜单编号 ≥ 10 必然出现；菜单项为
+#   1=进入书签根目录, 2..12=proj01..proj11, 13=返回书签选择
+cd "$TEST_ROOT"
+for k in $(seq -w 1 11); do mkdir -p "$BM1/proj$k"; done
+# 目标 = 菜单编号 12（= proj11）；期望 _c_jump 停在阶段3 而不是把 "1" 当成 proj01
+proj_out=$(printf '1\n12\n' | _c_jump 2>&1)
+assert "T3g 多位数编号：输入 1 不再立即跳转" grep -q "proj11" <<<"$proj_out"
+# 单位数行为不变：3 项菜单输 1 依旧立即选中第 1 项。
+# 注意：必须用 here-string(`<<<`) 而非 `|` 管道 —— 管道会让函数在子 shell
+# 中执行，FZ_PICK_RET 赋值随子 shell 一起消失（bash 固有行为，与本改动无关）。
+assert "T3g 单位数行为不变：1 仍选第一项" bash -c '
+  source "'"$FZ_SRC_DIR"'/fzgit.sh" >/dev/null 2>&1
+  a=(x y z)
+  _fz_picker "t: " "${a[@]}" >/dev/null 2>&1 <<< "1"
+  [ "$FZ_PICK_RET" = 1 ]'
+# 交互路径（TTY 逐键）是本次修复的主战场，管道退化模式一次读整行、
+# 本就支持多位，覆盖不到缓冲逻辑；该路径由 pty 探针实测验证。
+
 # ══════════════════════════════════════════
 echo ""
 echo "══════════ T4 移动/复制 + safe.directory（用例6）══════════"
