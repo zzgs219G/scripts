@@ -80,14 +80,31 @@ scripts/
 - 旧版用户首次使用会自动把 `FZ_BASE` 导入为默认书签「工作台」
 - `bookmark` 命令打开交互式管理菜单（增删改查）
 
-## 安装（新用户）
+## Termux 初始化（首次打开 Termux 必做）
 
+> **仅限 Termux 环境**。电脑端（Git Bash / WSL / macOS / Linux）请直接跳到下一节「安装（新用户）」。
+
+首次安装 Termux 后，建议先执行以下两步，避免后续安装依赖、访问存储出现权限或源损坏问题：
 
 ```bash
-# 1. 安装依赖
+# 1. 更新软件源与系统包（防止旧源导致 pkg install 失败/装到旧版本）
+apt update && apt full-upgrade -y
+
+# 2. 授予 Termux 访问手机共享存储权限（~/storage 目录生成，克隆/读写项目必需）
+termux-setup-storage
+```
+
+> 💡 `termux-setup-storage` 执行后会弹出系统授权弹窗，**请点击「允许」**。若误关，可重新执行该命令或在系统设置 → 应用 → Termux → 权限 → 存储 中手动开启。
+
+---
+
+## 安装（新用户）
+
+```bash
+# 1. 安装核心依赖
 pkg install git curl gh
 
-# 2. 克隆到 HOME
+# 2. 克隆仓库到 HOME 目录
 cd ~
 git clone https://github.com/zzgs219G/scripts.git
 
@@ -96,10 +113,10 @@ sed -i '/fz-tools\/fzgit.sh/d' ~/.bashrc
 echo 'source "$HOME/scripts/fz-tools/fzgit.sh"' >> ~/.bashrc
 source ~/.bashrc
 
-# 4. 初始化
+# 4. 初始化环境与书签
 setup    # 检查环境 + 配置 Git 全局信息 + 创建书签
-login    # 登录 GitHub（可选）
-aikey    # 配置 AI commit Key（可选，自动生成提交信息）
+login    # 登录 GitHub（可选，用于 cl/remote/repo 等功能）
+aikey    # 配置 AI commit Key（可选，推送时自动生成提交信息）
 ```
 
 ## 迁移（旧版 curl 注入用户）

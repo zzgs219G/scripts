@@ -39,10 +39,11 @@ _bm_init() {
     echo -e "\033[90m书签 = 一个顶层目录，里面的每个子文件夹都会被当作一个项目\033[0m"
     read -p "书签名称（回车默认: 工作台）: " bm_name
     bm_name="${bm_name:-工作台}"
-    read -p "书签路径（如 ${HOME}/repos）: " bm_path
+    echo -e "\033[90m当前目录: $(pwd)\033[0m"
+    read -p "书签路径（回车=使用当前目录，或输入如 ${HOME}/repos）: " bm_path
     if [ -z "$bm_path" ]; then
-        bm_path="${HOME}/repos"
-        echo -e "\033[90m已使用默认路径: ${bm_path}\033[0m"
+        bm_path="$(pwd)"
+        echo -e "\033[90m已使用当前目录: ${bm_path}\033[0m"
     fi
     mkdir -p "$bm_path" 2>/dev/null
     if _bm_add "$bm_name" "$bm_path"; then
@@ -257,8 +258,12 @@ _bookmark_mgr() {
             1)
                 read -p "书签名称: " nb
                 [ -z "$nb" ] && { echo -e "\033[33m已取消\033[0m"; continue; }
-                read -p "书签路径: " np
-                [ -z "$np" ] && { echo -e "\033[33m已取消\033[0m"; continue; }
+                echo -e "\033[90m当前目录: $(pwd)\033[0m"
+                read -p "书签路径（回车=使用当前目录，或输入绝对路径）: " np
+                if [ -z "$np" ]; then
+                    np="$(pwd)"
+                    echo -e "\033[90m已使用当前目录: ${np}\033[0m"
+                fi
                 _bm_add "$nb" "$np"
                 ;;
             2)
