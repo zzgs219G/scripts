@@ -65,11 +65,19 @@ rm -f "$HOME/.fz_bookmarks"
 printf "工作台\n" | _bm_init >/dev/null 2>&1
 assert "T1a 迁移：FZ_BASE 自动导入为书签" grep -q "^工作台|" "$HOME/.fz_bookmarks"
 
-# T1b 全新安装向导：书签为空且无 FZ_BASE → 引导创建
+# T1b 全新安装向导：书签为空且无 FZ_BASE → 引导创建（v5.106 起先路径后名称）
 rm -f "$HOME/.fz_bookmarks"
 FZ_BASE=""
-printf "主工作台\n%s\n" "$BM1" | _bm_init >/dev/null 2>&1
+printf "%s\n主工作台\n" "$BM1" | _bm_init >/dev/null 2>&1
 assert "T1b 全新向导：创建书签文件" grep -q "^主工作台|${BM1}$" "$HOME/.fz_bookmarks"
+
+# T1c 书签名留空 → 自动取路径末尾文件夹名（v5.106 新增）
+rm -f "$HOME/.fz_bookmarks"
+printf "%s\n\n" "$BM1" | _bm_init >/dev/null 2>&1
+assert "T1c 书签名留空取文件夹名" grep -q "^main|${BM1}$" "$HOME/.fz_bookmarks"
+# T1c 覆盖了书签文件，恢复 T2 及之后用例依赖的初始状态（主工作台|BM1）
+rm -f "$HOME/.fz_bookmarks"
+printf "%s\n主工作台\n" "$BM1" | _bm_init >/dev/null 2>&1
 
 # ══════════════════════════════════════════
 echo ""

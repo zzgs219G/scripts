@@ -34,17 +34,20 @@ _bm_init() {
         return 0
     fi
 
-    # 全新安装：引导创建第一个书签
-    echo -e "\n\033[1;35m📌 欢迎使用《焚诀》v5.0！先创建一个书签吧\033[0m"
+    # 全新安装：引导创建第一个书签（v5.106：先定路径，书签名留空即取文件夹名）
+    echo -e "\n\033[1;35m📌 欢迎使用《焚诀》！先创建一个书签吧\033[0m"
     echo -e "\033[90m书签 = 一个顶层目录，里面的每个子文件夹都会被当作一个项目\033[0m"
-    read -p "书签名称（回车默认: 工作台）: " bm_name
-    bm_name="${bm_name:-工作台}"
     echo -e "\033[90m当前目录: $(pwd)\033[0m"
     read -p "书签路径（回车=使用当前目录，或输入如 ${HOME}/repos）: " bm_path
     if [ -z "$bm_path" ]; then
         bm_path="$(pwd)"
         echo -e "\033[90m已使用当前目录: ${bm_path}\033[0m"
     fi
+    # 取路径末尾文件夹名作为书签名默认值（去尾斜杠后取最后一段）
+    local _bm_def="${bm_path%/}"; _bm_def="${_bm_def##*/}"
+    [ -z "$_bm_def" ] && _bm_def="工作台"
+    read -p "书签名称（回车默认: ${_bm_def}）: " bm_name
+    bm_name="${bm_name:-$_bm_def}"
     mkdir -p "$bm_path" 2>/dev/null
     if _bm_add "$bm_name" "$bm_path"; then
         echo -e "\033[32m✅ 书签创建成功！执行 \033[1mc\033[0m\033[32m 开始使用\033[0m"
@@ -256,14 +259,17 @@ _bookmark_mgr() {
 
         case "$op" in
             1)
-                read -p "书签名称: " nb
-                [ -z "$nb" ] && { echo -e "\033[33m已取消\033[0m"; continue; }
                 echo -e "\033[90m当前目录: $(pwd)\033[0m"
                 read -p "书签路径（回车=使用当前目录，或输入绝对路径）: " np
                 if [ -z "$np" ]; then
                     np="$(pwd)"
                     echo -e "\033[90m已使用当前目录: ${np}\033[0m"
                 fi
+                # v5.106：书签名留空 → 自动取路径末尾文件夹名
+                local _bm_def="${np%/}"; _bm_def="${_bm_def##*/}"
+                [ -z "$_bm_def" ] && _bm_def="工作台"
+                read -p "书签名称（回车默认: ${_bm_def}）: " nb
+                nb="${nb:-$_bm_def}"
                 _bm_add "$nb" "$np"
                 ;;
             2)
