@@ -123,6 +123,16 @@ _fz_parse_push_args() {
 _p_push() {
     _check_git_repo || return 1
 
+    # v5.104 前置检查：Git 作者身份（user.name / user.email）
+    #  ⚠️ gh login（认证/推送权限）≠ setup（署名），两套独立配置。
+    #  缺署名时 commit 必失败——旧版被 2>/dev/null 吞掉、还假报"推送成功"，
+    #  代码根本没进提交。这里前置拦截并给出明确引导。
+    if [ -z "$(git config user.name 2>/dev/null)" ] || [ -z "$(git config user.email 2>/dev/null)" ]; then
+        echo -e "\033[31m❌ Git 作者身份未配置（user.name / user.email），无法提交\033[0m"
+        echo -e "\033[90m💡 已 gh login ≠ 已配置署名。执行 \033[36msetup\033[0m\033[90m 一键配置即可\033[0m"
+        return 1
+    fi
+
     # v5.100：参数解析接入（修复 p "备注" 被误判为远程名而报错）
     _fz_parse_push_args "$@"
     if [ "$FZ_PARSE_REMOTE_MISSING" -eq 1 ]; then
@@ -302,9 +312,20 @@ _p_push() {
 
     echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}${skip_ci_flag}\033[0m"
 
-    git commit -m "${msg}${skip_ci_flag}" 2>/dev/null || {
-        echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
-    }
+    # v5.104 修复：保留 commit 的真实报错，区分「真无变更」与「真失败」。
+    #  旧版 `git commit ... 2>/dev/null` 把失败原因吞掉，且一律当成
+    #  "无新变化"继续推 → 像身份缺失这类硬失败会假报"推送成功"。
+    local _commit_out
+    if ! _commit_out=$(git commit -m "${msg}${skip_ci_flag}" 2>&1); then
+        if echo "$_commit_out" | grep -qiE "nothing to commit|no changes added to commit"; then
+            echo -e "\033[33m⚠️ 无新变更，尝试直接推送\033[0m"
+        else
+            echo -e "\033[31m❌ 提交失败（代码未进入任何提交）：\033[0m"
+            echo "$_commit_out" | head -5 | sed 's/^/  \033[90m/'
+            echo -e "\033[0m"
+            return 1
+        fi
+    fi
 
     local -a _push_args=("$_fz_remote" "$b_name")
     [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
