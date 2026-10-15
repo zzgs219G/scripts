@@ -401,7 +401,17 @@ _fz_push_rejected_guide() {
     r_url=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
 
     echo -e "\n\033[31m❌ 推送到 $r_url 被拒绝\033[0m"
-    git fetch --quiet "$_fz_remote" 2>/dev/null
+
+    # v5.105：先确认能否连上远程。fetch 失败（网络/SSL/凭据）时，本地的
+    #  $remote/$branch 只是过期快照，基于它做"落后 / 无共同历史"诊断必然误判
+    #  （曾把一次网络抖动误报成"无共同历史"，还触发了自动 merge）。
+    #  连不上就明确报告并终止，绝不进入依赖远程信息的诊断分支。
+    if ! git fetch --quiet "$_fz_remote" 2>/dev/null; then
+        echo -e "\033[1;33m诊断结果：无法连接远程（网络不通 / SSL 中断 / 凭据失效）\033[0m"
+        echo -e "  · 先检查网络，恢复后重试 \033[36mp\033[0m"
+        echo -e "  · 网络正常仍失败 → 令牌可能过期，重新 \033[36mlogin\033[0m"
+        return 1
+    fi
 
     # 诊断 1：远程分支存在但与本地无共同祖先（首推撞上自动生成 README 等）
     if git rev-parse --verify --quiet "$_fz_remote/$b_name" >/dev/null 2>&1 \
