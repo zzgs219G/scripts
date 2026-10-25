@@ -397,14 +397,24 @@ _f_burn_symbol_index() {
 }
 
 # ── 剪贴板：复制路径（多平台兜底，失败静默）──
+# ══════════════════════════════════════════
+#  📋  复制路径到剪贴板（尽力而为，绝不阻塞）
+#  ⚠️ 修复：装了 termux-api 但没装 Termux:API 应用时，
+#     termux-clipboard-set 会**永久阻塞**（无服务端响应），
+#     表现为「f 卡在最后一步不动」。加超时兜底。
+# ══════════════════════════════════════════
 _f_burn_clip() {
     local target="$1"
+    local _tmo=""
+    command -v timeout >/dev/null 2>&1 && _tmo="timeout 3"
+
     if command -v termux-clipboard-set &>/dev/null; then
-        printf '%s' "$target" | termux-clipboard-set 2>/dev/null && return 0
+        printf '%s' "$target" | $_tmo termux-clipboard-set 2>/dev/null && return 0
     fi
+    local c
     for c in xclip wl-copy pbcopy; do
         if command -v "$c" &>/dev/null; then
-            printf '%s' "$target" | "$c" 2>/dev/null && return 0
+            printf '%s' "$target" | $_tmo "$c" 2>/dev/null && return 0
         fi
     done
     return 1

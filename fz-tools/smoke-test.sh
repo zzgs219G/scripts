@@ -241,6 +241,13 @@ assert "T9a st 显示书签上下文" grep -q "主工作台" <<<"$out"
 out=$(_ls_projects 2>&1)
 assert "T9b lsp 总览含项目" grep -q "projB" <<<"$out"
 
+# T9c/T9d（v5.103）：st 合并 info 信息 + 列出变更文件清单
+echo dirty >> "$BM1/projB/b.txt"
+echo brand-new > "$BM1/projB/newfile.txt"
+out=$(_st_status 2>&1)
+assert "T9c st 列出变更文件名（不再只有个数）" grep -q "newfile.txt" <<<"$out"
+assert "T9d st 含提交数与追踪文件数（合并 info）" grep -qE "次提交.*个追踪文件" <<<"$out"
+
 # ══════════════════════════════════════════
 echo ""
 echo "══════════ T11 多远程推送基准（v5.100 核心回归）══════════"

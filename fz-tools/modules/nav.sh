@@ -644,6 +644,8 @@ _ls_projects() {
 # ══════════════════════════════════════════
 #  📍  当前状态（st）
 #  v5.0 起增加当前书签名称显示（计划书 6.5）
+#  v5.103：合并 info 的核心信息（远程/提交数/追踪数/标签数）
+#          并新增「变更文件清单」——不再只报数字，直接列出改了哪些文件
 # ══════════════════════════════════════════
 _st_status() {
     local bm_name
@@ -680,4 +682,38 @@ _st_status() {
     local last_commit
     last_commit=$(git log -1 --format="%s (%cr)" 2>/dev/null)
     [ -n "$last_commit" ] && echo -e "  \033[90m📌 ${last_commit}\033[0m"
+
+    # ── v5.103 合并自 info：远程 / 提交数 / 追踪数 / 标签数 ──
+    local url commits tracked tags
+    url=$(git remote get-url origin 2>/dev/null)
+    commits=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+    tracked=$(git ls-files 2>/dev/null | wc -l | tr -d ' ')
+    tags=$(git tag 2>/dev/null | wc -l | tr -d ' ')
+    echo -e "  \033[90m🔗 ${url:-未绑定远程}\033[0m"
+    echo -e "  \033[90m📜 ${commits} 次提交 | 📁 ${tracked} 个追踪文件 | 🏷️ ${tags} 个标签\033[0m"
+
+    # ── v5.103 变更文件清单（核心新增）──
+    [ "$changes" -eq 0 ] && { echo -e "  \033[32m✅ 工作区干净，无未提交改动\033[0m\n"; return 0; }
+
+    local -a added=() modified=() deleted=() untracked=()
+    local st_code st_path
+    while IFS= read -r rec; do
+        [ -z "$rec" ] && continue
+        st_code="${rec:0:2}"
+        st_path="${rec:3}"
+        case "$st_code" in
+            '??')     untracked+=("$st_path") ;;
+            *D*)      deleted+=("$st_path") ;;
+            A*|*A)    added+=("$st_path") ;;
+            *)        modified+=("$st_path") ;;
+        esac
+    done < <(git status --porcelain 2>/dev/null)
+
+    echo -e "\n  \033[1;36m📋 变更文件:\033[0m"
+    local p
+    [ ${#added[@]}     -gt 0 ] && { echo -e "  \033[32m＋ 新增 (${#added[@]})\033[0m";     for p in "${added[@]}";     do echo -e "     \033[32m${p}\033[0m"; done; }
+    [ ${#modified[@]}  -gt 0 ] && { echo -e "  \033[33m✎ 修改 (${#modified[@]})\033[0m";  for p in "${modified[@]}";  do echo -e "     \033[33m${p}\033[0m"; done; }
+    [ ${#deleted[@]}   -gt 0 ] && { echo -e "  \033[31m－ 删除 (${#deleted[@]})\033[0m";   for p in "${deleted[@]}";   do echo -e "     \033[31m${p}\033[0m"; done; }
+    [ ${#untracked[@]} -gt 0 ] && { echo -e "  \033[90m？ 未跟踪 (${#untracked[@]})\033[0m"; for p in "${untracked[@]}"; do echo -e "     \033[90m${p}\033[0m"; done; }
+    echo -e "\n  \033[90m💡 d 看未暂存差异 | p 推送 | info 看完整仓库信息\033[0m\n"
 }
