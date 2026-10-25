@@ -123,6 +123,16 @@ _fz_parse_push_args() {
 _p_push() {
     _check_git_repo || return 1
 
+    # v5.104 前置检查：Git 作者身份（user.name / user.email）
+    #  ⚠️ gh login（认证/推送权限）≠ setup（署名），两套独立配置。
+    #  缺署名时 commit 必失败——旧版被 2>/dev/null 吞掉、还假报"推送成功"，
+    #  代码根本没进提交。这里前置拦截并给出明确引导。
+    if [ -z "$(git config user.name 2>/dev/null)" ] || [ -z "$(git config user.email 2>/dev/null)" ]; then
+        echo -e "\033[31m❌ Git 作者身份未配置（user.name / user.email），无法提交\033[0m"
+        echo -e "\033[90m💡 已 gh login ≠ 已配置署名。执行 \033[36msetup\033[0m\033[90m 一键配置即可\033[0m"
+        return 1
+    fi
+
     # v5.100：参数解析接入（修复 p "备注" 被误判为远程名而报错）
     _fz_parse_push_args "$@"
     if [ "$FZ_PARSE_REMOTE_MISSING" -eq 1 ]; then
@@ -302,9 +312,20 @@ _p_push() {
 
     echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}${skip_ci_flag}\033[0m"
 
-    git commit -m "${msg}${skip_ci_flag}" 2>/dev/null || {
-        echo -e "\033[33m⚠️ commit 无新变化，尝试直接推送\033[0m"
-    }
+    # v5.104 修复：保留 commit 的真实报错，区分「真无变更」与「真失败」。
+    #  旧版 `git commit ... 2>/dev/null` 把失败原因吞掉，且一律当成
+    #  "无新变化"继续推 → 像身份缺失这类硬失败会假报"推送成功"。
+    local _commit_out
+    if ! _commit_out=$(git commit -m "${msg}${skip_ci_flag}" 2>&1); then
+        if echo "$_commit_out" | grep -qiE "nothing to commit|no changes added to commit"; then
+            echo -e "\033[33m⚠️ 无新变更，尝试直接推送\033[0m"
+        else
+            echo -e "\033[31m❌ 提交失败（代码未进入任何提交）：\033[0m"
+            echo "$_commit_out" | head -5 | sed 's/^/  \033[90m/'
+            echo -e "\033[0m"
+            return 1
+        fi
+    fi
 
     local -a _push_args=("$_fz_remote" "$b_name")
     [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
@@ -380,7 +401,17 @@ _fz_push_rejected_guide() {
     r_url=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
 
     echo -e "\n\033[31m❌ 推送到 $r_url 被拒绝\033[0m"
-    git fetch --quiet "$_fz_remote" 2>/dev/null
+
+    # v5.105：先确认能否连上远程。fetch 失败（网络/SSL/凭据）时，本地的
+    #  $remote/$branch 只是过期快照，基于它做"落后 / 无共同历史"诊断必然误判
+    #  （曾把一次网络抖动误报成"无共同历史"，还触发了自动 merge）。
+    #  连不上就明确报告并终止，绝不进入依赖远程信息的诊断分支。
+    if ! git fetch --quiet "$_fz_remote" 2>/dev/null; then
+        echo -e "\033[1;33m诊断结果：无法连接远程（网络不通 / SSL 中断 / 凭据失效）\033[0m"
+        echo -e "  · 先检查网络，恢复后重试 \033[36mp\033[0m"
+        echo -e "  · 网络正常仍失败 → 令牌可能过期，重新 \033[36mlogin\033[0m"
+        return 1
+    fi
 
     # 诊断 1：远程分支存在但与本地无共同祖先（首推撞上自动生成 README 等）
     if git rev-parse --verify --quiet "$_fz_remote/$b_name" >/dev/null 2>&1 \

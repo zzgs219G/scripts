@@ -279,8 +279,14 @@ _fz_unrelated_history_guide() {
     echo -e "  \033[33m[1]\033[0m 合并远程内容（推荐：远程的 README 会保留，历史合二为一）"
     echo -e "  \033[33m[2]\033[0m 用本地覆盖远程（远程上原有文件会被移除，如远程 README）"
     echo -e "  \033[33m[3]\033[0m 取消，我自己处理"
-    read -p "请选择 (回车=1): " uh_choice
-    case "${uh_choice:-1}" in
+    # v5.105：非交互环境（脚本 / 管道 / stdin 非 TTY）下 read 会立刻读到 EOF
+    #  得到空值，旧版 ${uh_choice:-1} 会默认成"合并"并擅自 merge（曾误诊网络
+    #  抖动为 unrelated histories 后自动合并）。现改为：非 TTY 时空输入按
+    #  "取消"处理，绝不自动动代码；交互式回车仍默认合并（行为不变）。
+    local _uh_default="1"
+    [ -t 0 ] || _uh_default="3"
+    read -p "请选择 (回车=${_uh_default}): " uh_choice
+    case "${uh_choice:-$_uh_default}" in
         1)
             # v5.100：合并/覆盖改为针对调用方指定的远程（旧版硬编码 origin，
             #    p cnb 撞上 unrelated histories 时会去操作错误的远程）
