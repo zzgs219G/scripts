@@ -496,10 +496,22 @@ _fz_init() {
     fi
 
     # 主分支统一为 main（与 p / b 模块习惯一致）
+    # ⚠️ 不能靠 `git symbolic-ref --short HEAD` 是否为空来判断：
+    #    git init 之后 HEAD 已指向 refs/heads/master（分支尚未创建），
+    #    该命令会返回 "master" 而不是空，导致改名逻辑被跳过。
+    #    正确判断是「当前分支名不是 main」——此时若该分支还没有提交，
+    #    直接改 HEAD 指向即可。
     local cur_branch
     cur_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
-    if [ -z "$cur_branch" ]; then
-        git symbolic-ref HEAD refs/heads/main
+    if [ -n "$cur_branch" ] && [ "$cur_branch" != "main" ]; then
+        # 仅当该分支尚无提交时才改名（已有历史的分支不动，避免惊吓）
+        if ! git rev-parse --verify --quiet "refs/heads/${cur_branch}" >/dev/null 2>&1; then
+            git symbolic-ref HEAD refs/heads/main 2>/dev/null
+            # 若 remote 已存在且默认分支是 master，同步过去更省事
+            cur_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+        fi
+    elif [ -z "$cur_branch" ]; then
+        git symbolic-ref HEAD refs/heads/main 2>/dev/null
     fi
 
     # 初始提交：仅当仓库完全无提交时做（避免覆盖用户已有历史）

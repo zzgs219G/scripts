@@ -624,6 +624,52 @@ _t16_v=$(grep -m1 '^FZ_VERSION=' "${FZ_SRC_DIR}/fzgit.sh" | cut -d'"' -f2)
 assert "T16d FZ_VERSION 可解析" test -n "$_t16_v"
 
 # ══════════════════════════════════════════
+# T17 init 与 save 的行为正确性
+#  这两个是「用户照着文档操作」的高频入口，错了会被当成自己操作有误。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T17 init / save ══════════"
+
+_t17="$TEST_ROOT/t17"
+
+# T17a 空目录 init 应建出 main 分支
+mkdir -p "$_t17/fresh"
+( cd "$_t17/fresh" && printf '\n\n\n\n' | _fz_init >/dev/null 2>&1 )
+assert "T17a init 建出 main 分支（非 master）" \
+    test "$(git -C "$_t17/fresh" branch --show-current)" = "main"
+
+# T17b init 应产生初始提交（否则 p 无分支可推）
+assert "T17b init 建有初始提交" \
+    git -C "$_t17/fresh" rev-parse --verify --quiet HEAD
+
+# T17c 已有 master 历史的仓库不得被强改分支
+mkdir -p "$_t17/legacy"
+( cd "$_t17/legacy" && git init -q && git commit -q --allow-empty -m old )
+( cd "$_t17/legacy" && printf '\n\n\n\n' | _fz_init >/dev/null 2>&1 )
+assert "T17c 已有历史的 master 不被强改" \
+    test "$(git -C "$_t17/legacy" branch --show-current)" = "master"
+
+# T17d save 应包含未跟踪的新文件
+mkdir -p "$_t17/st"
+( cd "$_t17/st" && git init -q && echo base > f.txt && git add -A && git commit -qm base )
+echo changed > "$_t17/st/f.txt"
+echo brandnew > "$_t17/st/g.txt"
+( cd "$_t17/st" && _stash_save >/dev/null 2>&1 )
+assert "T17d save 后工作区干净（含未跟踪文件）" \
+    test -z "$(git -C "$_t17/st" status -s 2>/dev/null)"
+
+# T17e save 掉的新文件应能通过 pop 恢复
+( cd "$_t17/st" && _stash_pop >/dev/null 2>&1 )
+assert "T17e pop 恢复未跟踪文件" test -f "$_t17/st/g.txt"
+assert "T17f pop 恢复已跟踪文件的改动" \
+    test "$(cat "$_t17/st/f.txt" 2>/dev/null)" = "changed"
+
+# T17g 工作区干净时 save 不应报错
+( cd "$_t17/st" && git add -A >/dev/null 2>&1 && git commit -qm x >/dev/null 2>&1
+  _stash_save >/dev/null 2>&1 )
+assert "T17g 工作区干净时 save 正常返回" [ $? -eq 0 ]
+
+# ══════════════════════════════════════════
 echo ""
 echo "══════════════════ 汇总 ══════════════════"
 echo "通过: ${PASS}   失败: ${FAIL}"

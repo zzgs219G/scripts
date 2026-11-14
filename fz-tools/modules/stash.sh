@@ -13,8 +13,30 @@
 _stash_save() {
     _check_git_repo || return 1
     local msg="${1:-临时保存_$(date '+%m%d_%H%M')}"
-    git stash push -m "$msg"
-    echo -e "\033[32m🧊 已暂存: $msg\033[0m"
+
+    # 未跟踪文件默认不在 stash 范围内。用户说「暂存工作区」时通常
+    # 期望新增文件也被一起收走，否则 save 后工作区仍脏、后续 checkout
+    # 会失败。这里显式带上 -u，并在无任何改动时给出明确提示。
+    if [ -z "$(git status -s 2>/dev/null)" ]; then
+        echo -e "\033[33m🧊 工作区没有需要暂存的改动\033[0m"
+        return 0
+    fi
+
+    local untracked=0
+    [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ] && untracked=1
+
+    if git stash push -u -m "$msg" >/dev/null 2>&1; then
+        echo -e "\033[32m🧊 已暂存: $msg\033[0m"
+        [ "$untracked" -eq 1 ] && echo -e "\033[90m   含未跟踪的新文件（恢复时一并回来）\033[0m"
+    else
+        # 兼容极老版本 git（无 -u 支持）
+        git stash push -m "$msg" || {
+            echo -e "\033[31m❌ 暂存失败\033[0m"
+            return 1
+        }
+        echo -e "\033[32m🧊 已暂存: $msg\033[0m"
+        echo -e "\033[33m   ⚠️ 未跟踪的新文件未被包含（当前 git 版本不支持 -u）\033[0m"
+    fi
     git stash list | head -5
 }
 
