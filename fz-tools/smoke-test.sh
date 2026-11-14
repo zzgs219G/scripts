@@ -7,7 +7,7 @@
 #    · 本地 bare 仓库模拟远端，零网络依赖
 #    · 交互流程全部自动应答（管道喂入）
 #    · 结束自动清理全部临时文件（trap EXIT）
-#  覆盖 plan.md 8.2 六个测试用例 + 各模块核心函数
+#  覆盖 T1-T12：核心功能回归 + 安全回归（凭据隔离 / 无副作用加载）
 # ════════════════════════════════════════════════════════════
 
 set -u
@@ -67,7 +67,9 @@ assert "T1a 迁移：FZ_BASE 自动导入为书签" grep -q "^工作台|" "$HOME
 
 # T1b 全新安装向导：书签为空且无 FZ_BASE → 引导创建（v5.106 起先路径后名称）
 rm -f "$HOME/.fz_bookmarks"
+# shellcheck disable=SC2034  # 由 _bm_init 通过 export 读取，静态分析看不到
 FZ_BASE=""
+export FZ_BASE
 printf "%s\n主工作台\n" "$BM1" | _bm_init >/dev/null 2>&1
 assert "T1b 全新向导：创建书签文件" grep -q "^主工作台|${BM1}$" "$HOME/.fz_bookmarks"
 
@@ -115,7 +117,7 @@ echo "══════════ T3 导航三阶段状态机（用例3）═
 mkdir -p "$BM1/projA"
 ( cd "$BM1/projA" && git init -q && echo hello > a.txt && git add . && git commit -qm init )
 
-cd "$TEST_ROOT"
+cd "$TEST_ROOT" || exit 1
 _c_jump <<< $'1\n0\n' >/dev/null 2>&1
 assert "T3a 阶段1→2 [0] 进入书签根目录" [ "$PWD" = "$BM1" ]
 
@@ -138,7 +140,7 @@ assert "T3e [b] 返回书签选择后 [q] 退出" [ $? -eq 0 ]
 # ── T3g 多位数编号（v5.101 回归：11 个目录时想输 11，旧版一敲 1 就进项目 1）──
 # 构造 11 个项目，使菜单编号 ≥ 10 必然出现；菜单项为
 #   1=进入书签根目录, 2..12=proj01..proj11, 13=返回书签选择
-cd "$TEST_ROOT"
+cd "$TEST_ROOT" || exit 1
 for k in $(seq -w 1 11); do mkdir -p "$BM1/proj$k"; done
 # 目标 = 菜单编号 12（= proj11）；期望 _c_jump 停在阶段3 而不是把 "1" 当成 proj01
 proj_out=$(printf '1\n12\n' | _c_jump 2>&1)
@@ -158,7 +160,7 @@ assert "T3g 单位数行为不变：1 仍选第一项" bash -c '
 echo ""
 echo "══════════ T4 移动/复制 + safe.directory（用例6）══════════"
 
-cd "$TEST_ROOT"
+cd "$TEST_ROOT" || exit 1
 printf "1\ny\n" | _bm_move_copy "主工作台" "$BM1/projA" "move" >/dev/null 2>&1
 assert "T4a 移动成功" [ -d "$BM2/projA" ]
 assert "T4b 原位置已移除" [ ! -d "$BM1/projA" ]
@@ -175,13 +177,13 @@ echo ""
 echo "══════════ T5 交互式克隆（用例4：gh 不可用时降级直连）══════════"
 
 # T5a 书签目录内克隆 → 自动识别书签（无需询问）
-cd "$BM1"
+cd "$BM1" || exit 1
 printf "n\n" | _clone_direct "file://${REMOTE}" >/dev/null 2>&1
 assert "T5a 克隆到书签目录" [ -d "$BM1/origin" ]
 
 # T5b 非书签目录克隆 → 询问是否加入书签
 mkdir -p "$TEST_ROOT/elsewhere"
-cd "$TEST_ROOT/elsewhere"
+cd "$TEST_ROOT/elsewhere" || exit 1
 printf "y\n新书签\n" | _clone_direct "file://${REMOTE}" >/dev/null 2>&1
 assert "T5b 克隆到非书签目录" [ -d "$TEST_ROOT/elsewhere/origin" ]
 assert "T5c 询问后加入新书签" grep -q "^新书签|${TEST_ROOT}/elsewhere$" "$HOME/.fz_bookmarks"
@@ -198,7 +200,7 @@ fi
 echo ""
 echo "══════════ T6 批量拉取（用例5）══════════"
 
-cd "$BM1"
+cd "$BM1" || exit 1
 git clone -q "$REMOTE" remote_proj 2>/dev/null
 ( cd "$BM1/remote_proj" && echo update > u.txt && git add . && git commit -qm update && git push -q origin HEAD 2>&1 )
 
@@ -215,7 +217,7 @@ assert "T6b 拉取失败被记录" grep -q "失败项目列表" <<<"$out"
 echo ""
 echo "══════════ T7 炼化输出路径（计划书 6.4）══════════"
 
-cd "$BM1/projB"
+cd "$BM1/projB" || exit 1
 _f_burn >/dev/null 2>&1
 assert "T7a 炼化输出到项目上一级目录" [ -f "$BM1/code_projB.txt" ]
 
@@ -223,17 +225,17 @@ assert "T7a 炼化输出到项目上一级目录" [ -f "$BM1/code_projB.txt" ]
 echo ""
 echo "══════════ T8 上下文感知（计划书 6.2 / 6.5）══════════"
 
-cd "$BM1/projB"
+cd "$BM1/projB" || exit 1
 bm=$(_bm_current)
 assert "T8a 识别当前书签" [ "$bm" = "主工作台" ]
 
 mkdir -p "$TEST_ROOT/outside/gitx"
 ( cd "$TEST_ROOT/outside/gitx" && git init -q && echo y > y.txt && printf 'build/\n' > .gitignore && git add . && git commit -qm c )
-cd "$TEST_ROOT/outside/gitx"
+cd "$TEST_ROOT/outside/gitx" || exit 1
 printf "n\n" | _p_push >/dev/null 2>&1; rc=$?
 assert "T8b 非书签内推送前置检查拦截" [ "$rc" -ne 0 ]
 
-cd "$BM1/projB"
+cd "$BM1/projB" || exit 1
 rm -f "$BM1/code_projB.txt"   # 清理 T7 炼化产物，恢复"无变更"场景
 out=$(_p_push 2>&1)
 # v5.100：文案从含糊的"没有任何变更"改为明确说明（projB 无远程 → 未绑定提示）
@@ -243,7 +245,7 @@ assert "T8c 书签内无变更时给出明确提示" grep -q "无需推送" <<<"
 echo ""
 echo "══════════ T9 状态与总览（lsp / st）══════════"
 
-cd "$BM1/projB"
+cd "$BM1/projB" || exit 1
 out=$(_st_status 2>&1)
 assert "T9a st 显示书签上下文" grep -q "主工作台" <<<"$out"
 out=$(_ls_projects 2>&1)
@@ -279,7 +281,7 @@ mkdir -p "$BM2/multi"
   git push -q -u cnb main && git push -q origin main
 ) >/dev/null 2>&1
 
-cd "$BM2/multi"
+cd "$BM2/multi" || exit 1
 assert "T11a 前置：上游指向 cnb（复现用户环境）" \
     [ "$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null)" = "cnb/main" ]
 
@@ -329,6 +331,141 @@ if [ "$missing" -eq 0 ]; then
     PASS=$((PASS + 1)); echo "  ✅ 全部 27 个核心函数已加载"
 else
     FAIL=$((FAIL + 1)); FAIL_NAMES+=("模块加载完整性（缺 $missing 个函数）")
+fi
+
+# ══════════════════════════════════════════
+# T12 安全回归（P0：凭据不得进入仓库）
+#  背景：aikey 曾把 Key 明文 sed 进被 git 追踪的 fz-tools/fzgit.sh，
+#  而 p 会执行 git add . —— 配过 Key 后一次推送即公开泄漏。
+#  以下用例锁死修复，防止被改回。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T12 安全回归（凭据隔离）══════════"
+
+# T12a: source 主入口不得写磁盘（旧版会 mkdir -p 一个硬编码个人路径）
+unset FZ_BASE FZ_BASE_USER_SET
+_probe_home="$TEST_ROOT/t12_home"; mkdir -p "$_probe_home"
+( HOME="$_probe_home"; unset FZ_BASE FZ_BASE_USER_SET
+  source "${FZ_SRC_DIR}/fzgit.sh" >/dev/null 2>&1
+  [ -d "${_probe_home}/repos" ] && exit 1 || exit 0 )
+assert "T12a source 主入口不创建目录（不写磁盘）" [ $? -eq 0 ]
+
+# T12b: 全新用户不应被误判为旧版（FZ_BASE_USER_SET 默认 0）
+( HOME="$_probe_home"; unset FZ_BASE FZ_BASE_USER_SET
+  source "${FZ_SRC_DIR}/fzgit.sh" >/dev/null 2>&1
+  [ "$FZ_BASE_USER_SET" = "0" ] )
+assert "T12b 新用户 FZ_BASE_USER_SET=0（不误判旧版）" [ $? -eq 0 ]
+
+# T12c: 主入口源码中不得硬编码个人存储路径
+if grep -q '工作台😡\|/storage/emulated/0/常用' "${FZ_SRC_DIR}/fzgit.sh" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T12c 主入口含硬编码个人路径"); echo "  ❌ T12c"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T12c 主入口无硬编码个人路径"
+fi
+
+# T12d: aikey 不得写入被 git 追踪的文件
+if grep -qE 'sed -i.*FZ_AI_KEY' "${FZ_SRC_DIR}/modules/env.sh" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T12d aikey 仍 sed 写入仓库文件"); echo "  ❌ T12d"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T12d aikey 不再写入仓库文件"
+fi
+
+# T12e: 凭据护栏能拦住真 Key
+_t12repo="$TEST_ROOT/t12_repo"; mkdir -p "$_t12repo/fz-tools"
+cp "${FZ_SRC_DIR}/core.sh" "$_t12repo/fz-tools/"
+( cd "$_t12repo" && git init -q && \
+  echo "x" > base.txt && git add -A && git commit -qm base && \
+  printf 'K="sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx"\n' > leak.sh && \
+  git add -A && \
+  ( source fz-tools/core.sh; ! _fz_guard_staged_secrets ) )
+assert "T12e 凭据护栏拦住真实 Key" [ $? -eq 0 ]
+
+# T12f: 凭据护栏不误报占位符/文档写法
+( cd "$_t12repo" && git reset -q && rm -f leak.sh && \
+  printf 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n' > p.txt && \
+  printf '# 示例: sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx\n' >> p.txt && \
+  printf 'FZ_AI_KEY=""\n' >> p.txt && \
+  git add -A && \
+  ( source fz-tools/core.sh; _fz_guard_staged_secrets ) )
+assert "T12f 凭据护栏不误报占位符" [ $? -eq 0 ]
+
+# T12g: p 不再自动改写版本号（旧版每次推送都产生版本号提交）
+if grep -qE 'sed -i.*FZ_VERSION' "${FZ_SRC_DIR}/modules/push.sh" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T12g p 仍在改写版本号"); echo "  ❌ T12g"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T12g p 不再自动改写版本号"
+fi
+
+# ══════════════════════════════════════════
+# T13 安装器（get.sh）
+#  安装是用户接触本工具的第一步，出错代价最高：
+#  · 重复安装不能堆叠 .bashrc
+#  · 目标目录已有数据时不能覆盖
+#  · 卸载不能吃掉用户的书签与 Key
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T13 安装器（get.sh）══════════"
+
+GET_SH="${FZ_SRC_DIR}/../get.sh"
+if [ ! -f "$GET_SH" ]; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T13 get.sh 缺失"); echo "  ❌ T13 get.sh 缺失"
+else
+    _t13="$TEST_ROOT/t13"
+    mkdir -p "$_t13/src" "$_t13/home"
+    # 用本地 bare 仓库模拟远端，零网络
+    git init -q --bare "$_t13/remote.git"
+    ( cd "$_t13/src" \
+      && cp -r "${FZ_SRC_DIR}" fz-tools && cp "$GET_SH" . \
+      && git init -q && git add -A \
+      && git -c user.email=a@b.c -c user.name=t commit -qm t13 \
+      && git branch -M main \
+      && git push -q "$_t13/remote.git" main ) >/dev/null 2>&1
+
+    _t13_install() {
+        HOME="$_t13/home" \
+        FZ_REPO_URL="$_t13/remote.git" \
+        FZ_HOME="$_t13/home/.local/share/fz" \
+        FZ_RC="$_t13/home/.bashrc" \
+        bash "$GET_SH" < /dev/null
+    }
+
+    # T13a 全新安装：目录 + bashrc 加载行
+    _t13_install >/dev/null 2>&1
+    assert "T13a 全新安装创建安装目录" test -d "$_t13/home/.local/share/fz/.git"
+    assert "T13b 写入 bashrc 加载行" \
+        bash -c "grep -q 'fz-tools/fzgit.sh' '$_t13/home/.bashrc'"
+
+    # T13c 幂等：重复安装不得堆叠
+    _t13_install >/dev/null 2>&1
+    _cnt=$(grep -c 'fz-tools/fzgit.sh' "$_t13/home/.bashrc" 2>/dev/null || echo 0)
+    assert "T13c 重复安装幂等（加载行仍为 1）" [ "$_cnt" = "1" ]
+
+    # T13d 安装后可用（交互式 shell 中别名生效）
+    assert "T13d 安装后 c 别名可用" \
+        bash -c "HOME='$_t13/home' bash -ic 'type c' 2>/dev/null | grep -q 'c is aliased'"
+
+    # T13e 拒绝覆盖非 git 目录（防吃数据）
+    mkdir -p "$_t13/occupied"; echo "keep" > "$_t13/occupied/keep.txt"
+    HOME="$_t13/home" FZ_REPO_URL="$_t13/remote.git" \
+    FZ_HOME="$_t13/occupied" FZ_RC="$_t13/home/.bashrc" \
+    bash "$GET_SH" < /dev/null >/dev/null 2>&1
+    assert "T13e 不覆盖已有非 git 目录" test -f "$_t13/occupied/keep.txt"
+
+    # T13f 无 TTY 时卸载必须显式 --yes（破坏性操作不默认同意）
+    assert "T13f 无 --yes 时拒绝卸载" \
+        bash -c "HOME='$_t13/home' FZ_HOME='$_t13/home/.local/share/fz' FZ_RC='$_t13/home/.bashrc' \
+                 bash '$GET_SH' --uninstall </dev/null 2>&1 | grep -q '需要显式确认'"
+
+    # T13g 卸载保留书签与 Key
+    echo "工作台|$_t13/books" > "$_t13/home/.fz_bookmarks"
+    echo "sk-ant-dummy" > "$_t13/home/.fz_ai_key"
+    HOME="$_t13/home" FZ_HOME="$_t13/home/.local/share/fz" \
+    FZ_RC="$_t13/home/.bashrc" bash "$GET_SH" --uninstall --yes </dev/null >/dev/null 2>&1
+    assert "T13g 卸载删除安装目录" bash -c "[ ! -d '$_t13/home/.local/share/fz' ]"
+    assert "T13h 卸载清除 bashrc 加载行" \
+        bash -c "! grep -q 'fz-tools/fzgit.sh' '$_t13/home/.bashrc' 2>/dev/null"
+    assert "T13i 卸载保留书签文件" test -f "$_t13/home/.fz_bookmarks"
+    assert "T13j 卸载保留 API Key 文件" test -f "$_t13/home/.fz_ai_key"
 fi
 
 # ══════════════════════════════════════════
