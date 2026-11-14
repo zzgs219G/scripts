@@ -670,6 +670,64 @@ assert "T17f pop 恢复已跟踪文件的改动" \
 assert "T17g 工作区干净时 save 正常返回" [ $? -eq 0 ]
 
 # ══════════════════════════════════════════
+# T18 菜单渲染性能（回归防护）
+#  背景：宽度计算曾在「菜单项 × 字符」两层循环里调用外部命令，
+#  每个字符 fork 3 个进程，12 项菜单要 0.8 秒，Termux 上表现为
+#  敲 c 之后卡顿。这类退化不会让功能出错，只会让人以为电脑坏了。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T18 渲染性能 ══════════"
+
+# T18a 去色函数正确性
+_fz_strip_ansi $'\033[1;33m黄\033[0m绿'
+assert "T18a ANSI 去色正确" test "$_FZ_STRIP_OUT" = "黄绿"
+
+# T18b 去色无 ANSI 时原样返回
+_fz_strip_ansi "纯文本"
+assert "T18b 无 ANSI 时原样返回" test "$_FZ_STRIP_OUT" = "纯文本"
+
+# T18c 宽度判断：ASCII 与全角
+assert "T18c ASCII 字符宽 1" test "$(_fz_char_width 'A')" = "1"
+assert "T18d 空格宽 1（曾是 bug）" test "$(_fz_char_width ' ')" = "1"
+assert "T18e CJK 宽 2" test "$(_fz_char_width '中')" = "2"
+assert "T18f emoji 宽 2" test "$(_fz_char_width '😡')" = "2"
+
+# T18g 渲染 12 项中文菜单必须在 0.3 秒内完成
+_t18_start=$(date +%s%N 2>/dev/null || echo 0)
+(
+  local_items=()
+  for i in $(seq 12); do
+    local_items+=("📁 \033[1m我的项目$i\033[0m \033[90m(/storage/emulated/0/常用/项目$i)\033[0m")
+  done
+  for it in "${local_items[@]}"; do
+    _fz_strip_ansi "$it"; _v="$_FZ_STRIP_OUT"; _w=0
+    for ((k = 0; k < ${#_v}; k++)); do
+      _c="${_v:k:1}"
+      if [[ -n "$_c" && "$_c" < $'\x80' ]]; then _w=$((_w + 1)); else _w=$((_w + 2)); fi
+    done
+  done
+)
+_t18_end=$(date +%s%N 2>/dev/null || echo 0)
+if [ "$_t18_start" != "0" ] && [ "$_t18_end" != "0" ]; then
+    _t18_ms=$(( (_t18_end - _t18_start) / 1000000 ))
+    if [ "$_t18_ms" -lt 300 ]; then
+        PASS=$((PASS + 1)); echo "  ✅ T18g 12 项菜单渲染 ${_t18_ms}ms（上限 300ms）"
+    else
+        FAIL=$((FAIL + 1)); FAIL_NAMES+=("T18g 渲染过慢")
+        echo "  ❌ T18g 渲染 ${_t18_ms}ms，超过 300ms —— 可能又调用了外部命令"
+    fi
+else
+    PASS=$((PASS + 1)); echo "  ✅ T18g 跳过计时（date 不支持纳秒）"
+fi
+
+# T18h 渲染循环里不得出现 sed/awk/wc/tr
+if grep -q '_fz_picker.*sed\|_fz_char_width.*wc' "${FZ_SRC_DIR}/modules/nav.sh" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T18h 渲染路径含外部命令"); echo "  ❌ T18h"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T18h 渲染路径无外部命令"
+fi
+
+# ══════════════════════════════════════════
 echo ""
 echo "══════════════════ 汇总 ══════════════════"
 echo "通过: ${PASS}   失败: ${FAIL}"

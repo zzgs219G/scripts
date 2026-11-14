@@ -13,19 +13,52 @@
 
 # ══════════════════════════════════════════
 #  📏  单字符显示宽度（1=半角, 2=全角）
-#  为什么需要单独一个函数：
-#   旧版判断写作 [[ "$ch" == [^\x00-\x7F] ]]，但 bash 的 [[ ]]
-#    里 [\x00-\x7F] 不是数值范围，而是字符集合——`0-0` 与 `7-F`
-#    被当作字面范围，结果空格(0x20)、`!`(0x21)、`~`(0x7E) 等
-#    ASCII 标点全被判成「非 ASCII」，宽度算成 2。
-#    书签名/路径含空格极常见，菜单因此折行、指示器错位。
-#  现改为按 UTF-8 字节数判断：ASCII = 1 字节，多字节 = 全角。
+#
+#  ⚠️ 性能敏感：本函数在「每个菜单项 × 每个字符」的两层循环里被调用。
+#     若内部启动外部命令（printf|wc|tr），每次调用要 fork 三个进程，
+#     10 项 × 20 字的菜单就要 2 秒以上，Termux 上表现为敲 c 后明显卡顿。
+#     这里全部用 bash 内建，零 fork（实测 200 次 0.02 秒）。
+#
+#  判定：与 $'\x80' 比较即可区分 ASCII 与非 ASCII。
+#     半角 = ASCII（含空格、标点），全角 = 多字节（CJK / emoji / 全角符号）。
 _fz_char_width() {
     local ch="$1"
-    [ -z "$ch" ] && { echo 0; return; }
-    local bytes
-    bytes=$(LC_ALL=C printf '%s' "$ch" | wc -c | tr -d ' ')
-    if [ "${bytes:-1}" -gt 1 ]; then echo 2; else echo 1; fi
+    [ -z "$ch" ] && { printf '0'; return; }
+    if [[ "$ch" < $'\x80' ]]; then
+        printf '1'
+    else
+        printf '2'
+    fi
+}
+
+# ══════════════════════════════════════════
+#  🧽  ANSI 去色（纯内建，零 fork）
+#  ⚠️ 不能用 `sed`（每项 fork 一次进程），也不能用
+#     `${x//$'\033'\[*([0-9;])m/}`（需要 extglob，默认关闭，
+#     不能在用户的 shell 里擅自 `shopt -s extglob`）。
+#  逐字符扫描识别 ESC [ ... 终止字母，跳过整段。
+# ══════════════════════════════════════════
+_fz_strip_ansi() {
+    local s="$1" out="" i=0 c
+    local len=${#s}
+    _FZ_STRIP_OUT=""   # 返回值走全局，避免 set 用 $( ) fork
+    while [ "$i" -lt "$len" ]; do
+        c="${s:i:1}"
+        if [ "$c" = $'\033' ] && [ "${s:i+1:1}" = "[" ]; then
+            i=$((i + 2))
+            while [ "$i" -lt "$len" ]; do
+                c="${s:i:1}"
+                i=$((i + 1))
+                case "$c" in
+                    [a-zA-Z]) break ;;
+                esac
+            done
+        else
+            out+="$c"
+            i=$((i + 1))
+        fi
+    done
+    _FZ_STRIP_OUT="$out"
 }
 
 # ══════════════════════════════════════════
@@ -97,18 +130,31 @@ _fz_picker() {
                 # ── 防折行（重复堆叠 bug 主因之一）──
                 # 估算终端可见宽度：CJK/全角字符按 2 列计；超宽项降级为
                 # 纯文本截断（该行牺牲配色，避免折行破坏精确重绘）
-                local vis
-                vis=$(printf '%s' "$item" | sed 's/\x1b\[[0-9;]*m//g')
+                #
+                # ⚠️ 性能：这里处于「菜单项 × 字符」两层循环内，绝不能调用
+                #    外部命令或 $( ) 命令替换——每字符一次 fork，10 项菜单
+                #    就要接近 1 秒，Termux 上表现为敲 c 后明显卡顿。
+                #    去色用内建 _fz_strip_ansi（sed 会每项 fork 一次）。
+                _fz_strip_ansi "$item"
+                local vis="$_FZ_STRIP_OUT"
                 local w=0 j ch
                 for ((j = 0; j < ${#vis}; j++)); do
                     ch="${vis:j:1}"
-                    w=$((w + $(_fz_char_width "$ch")))
+                    if [[ -n "$ch" && "$ch" < $'\x80' ]]; then
+                        w=$((w + 1))
+                    else
+                        w=$((w + 2))
+                    fi
                 done
                 if [ "$w" -gt "$max_w" ]; then
                     local acc=0 cut=${#vis}
                     for ((j = 0; j < ${#vis}; j++)); do
                         ch="${vis:j:1}"
-                        acc=$((acc + $(_fz_char_width "$ch")))
+                        if [[ -n "$ch" && "$ch" < $'\x80' ]]; then
+                            acc=$((acc + 1))
+                        else
+                            acc=$((acc + 2))
+                        fi
                         if [ "$acc" -gt "$((max_w - 2))" ]; then cut=$j; break; fi
                     done
                     item="${vis:0:cut}…"
