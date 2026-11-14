@@ -529,6 +529,47 @@ bash -c "HOME='$_t14_h'; source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/m
 assert "T14j aikeyoff 删除配置文件" test ! -f "$_t14_h/.fz_ai.conf"
 
 # ══════════════════════════════════════════
+# T15 代码卫生（防止考古注释与文档腐化）
+#  背景：注释里堆版本号（"v5.100 修复了…"）会让读者无法判断
+#  哪段描述当前行为、哪段只是历史残骸。历史属于 CHANGELOG / git log。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T15 代码卫生 ══════════"
+
+# T15a 源码注释里不得出现版本号
+_t15_hits=$(grep -rn '^[[:space:]]*#.*v[0-9]\+\.[0-9]' \
+    "${FZ_SRC_DIR}"/*.sh "${FZ_SRC_DIR}"/modules/*.sh 2>/dev/null \
+    | grep -v 'smoke-test' \
+    | grep -v '支持 v\|格式\|比较' || true)
+if [ -n "$_t15_hits" ]; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T15a 注释含版本号")
+    echo "  ❌ T15a 注释含版本号（应移到 CHANGELOG）:"
+    printf '%s\n' "$_t15_hits" | head -3 | sed 's/^/     /'
+else
+    PASS=$((PASS + 1)); echo "  ✅ T15a 源码注释无版本号"
+fi
+
+# T15b README 不得承载 changelog
+_t15_repo="$(cd "${FZ_SRC_DIR}/.." && pwd)"
+if [ -f "${_t15_repo}/README.md" ] && grep -q '核心变化\|核心修复' "${_t15_repo}/README.md" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T15b README 混入 changelog"); echo "  ❌ T15b README 混入 changelog"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T15b README 不承载 changelog"
+fi
+
+# T15c 声明了 CHANGELOG 就必须存在
+if [ -f "${_t15_repo}/README.md" ] && grep -q 'CHANGELOG' "${_t15_repo}/README.md" 2>/dev/null; then
+    assert "T15c README 引用的 CHANGELOG 存在" test -f "${_t15_repo}/CHANGELOG.md"
+fi
+
+# T15d 主名应为 ghlogin（login 仅为兼容别名）
+if grep -q "alias ghlogin=" "${FZ_SRC_DIR}/fzgit.sh" 2>/dev/null; then
+    PASS=$((PASS + 1)); echo "  ✅ T15d 提供 ghlogin（避免遮蔽系统 login）"
+else
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T15d 缺少 ghlogin"); echo "  ❌ T15d 缺少 ghlogin"
+fi
+
+# ══════════════════════════════════════════
 echo ""
 echo "══════════════════ 汇总 ══════════════════"
 echo "通过: ${PASS}   失败: ${FAIL}"

@@ -108,6 +108,7 @@ jobs:
           grep -q 'T12e' fz-tools/smoke-test.sh || { echo "::error::T12 安全回归用例被移除"; exit 1; }
           grep -q 'T13f' fz-tools/smoke-test.sh || { echo "::error::T13 安装器用例被移除"; exit 1; }
           grep -q 'T14a' fz-tools/smoke-test.sh || { echo "::error::T14 AI 用例被移除"; exit 1; }
+          grep -q 'T15a' fz-tools/smoke-test.sh || { echo "::error::T15 代码卫生用例被移除"; exit 1; }
 
   no-secrets:
     name: 仓库内不得含凭据

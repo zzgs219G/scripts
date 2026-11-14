@@ -9,7 +9,7 @@
 # ════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════
-#  🧩  p 参数解析（v5.100 修复 p "备注" 失效）
+#  🧩  p 参数解析
 #  支持顺序自由组合：
 #    p                  p cnb            p "备注"
 #    p skip             p cnb skip       p skip "备注"
@@ -57,17 +57,16 @@ _fz_parse_push_args() {
 _p_push() {
     _check_git_repo || return 1
 
-    # v5.104 前置检查：Git 作者身份（user.name / user.email）
-    #  ⚠️ gh login（认证/推送权限）≠ setup（署名），两套独立配置。
-    #  缺署名时 commit 必失败——旧版被 2>/dev/null 吞掉、还假报"推送成功"，
-    #  代码根本没进提交。这里前置拦截并给出明确引导。
+    # ── 前置检查：Git 作者身份 ──
+    #  gh login（认证/推送权限）≠ setup（署名），是两套独立配置。
+    #  缺署名时 commit 必然失败，若等到 commit 阶段才发现，报错会埋在
+    #  git 输出里；这里前置拦截，给出可直接照做的引导。
     if [ -z "$(git config user.name 2>/dev/null)" ] || [ -z "$(git config user.email 2>/dev/null)" ]; then
         echo -e "\033[31m❌ Git 作者身份未配置（user.name / user.email），无法提交\033[0m"
         echo -e "\033[90m💡 已 gh login ≠ 已配置署名。执行 \033[36msetup\033[0m\033[90m 一键配置即可\033[0m"
         return 1
     fi
 
-    # v5.100：参数解析接入（修复 p "备注" 被误判为远程名而报错）
     _fz_parse_push_args "$@"
     if [ "$FZ_PARSE_REMOTE_MISSING" -eq 1 ]; then
         echo -e "\033[31m❌ 远程 \"${FZ_PARSE_REMOTE}\" 未绑定，执行 \033[1mremote\033[0m\033[31m 可绑定\033[0m"
@@ -78,13 +77,12 @@ _p_push() {
     local skip_ci_flag=""
     [ "$FZ_PARSE_SKIP" -eq 1 ] && skip_ci_flag=" [skip ci]"
 
-    # v5.97：p 远程名 —— 一键推送到指定远程（如 p cnb / p gitee）
-    # 不带参数 = 走 origin（默认行为不变）
+    # 指定远程时明示目标（p cnb / p gitee）；不带参数走 origin
     if [ "$_fz_remote" != "origin" ]; then
         echo -e "\033[36m🎯 本次推送到远程: \033[1m${_fz_remote}\033[0m \033[90m($(git remote get-url "$_fz_remote"))\033[0m"
     fi
 
-    # v5.0 前置检查：是否在书签项目内（计划书 6.2）
+    # 不在书签项目内时先确认（避免误推到家目录等非项目位置）
     if ! _bm_current >/dev/null; then
         echo -e "\033[33m⚠️ 当前目录不在任何书签项目内\033[0m"
         read -rp "是否继续推送？(y/n): " _cont
@@ -97,11 +95,12 @@ _p_push() {
     local b_name
     b_name=$(git branch --show-current)
 
-    # v5.100 核心修复：防冲突检测改为以「本次推送的目标远程」为基准
-    #  旧版用 @{u}（当前分支上游）：当上游指向另一个远程（如 cnb）时，
-    #  落后检测与"是否需要推送"全都看错了对象，导致 p origin 假报
-    #  "没有任何变更，无需推送"并直接返回，git push origin 从未执行。
-    #  fetch 仍为只读操作，只获取远程信息，绝不触碰本地代码与未提交改动。
+    # ── 防冲突检测的基准必须是「本次目标远程」，不能是 @{u} ──
+    #  一个项目可能同时绑多个远程（如 origin=GitHub、cnb=CNB），而分支的
+    #  上游只指向其中一个。若用 @{u} 判断，就会对另一个远程看错对象：
+    #  落后检测、『是否需要推送』全都基于错误的分支，结果是对 GitHub
+    #  假报『没有变更，无需推送』并直接返回——代码永远推不上去。
+    #  fetch 是只读操作，只取远程信息，不碰本地代码与未提交改动。
     local _fz_force_push=0
     local _fz_target_ref="$_fz_remote/$b_name"
     local _fz_have_target=0
@@ -162,10 +161,8 @@ _p_push() {
     local change_count
     change_count=$(git status -s 2>/dev/null | wc -l | tr -d ' ')
 
-    # v5.100 核心修复：判定基准从 @{u} 改为「本次目标远程 $_fz_target_ref」
-    #   · 目标远程尚无该分支 → 首推，必须推
-    #   · 目标远程落后 → 存在未推送提交，必须推
-    #  （旧版看 @{u}：上游指向 cnb 时此处恒为 0，于是假报"无需推送"直接 return）
+    # 判定「要不要推」同样只看目标远程（理由见上方基准说明）：
+    #   目标远程尚无该分支 → 首推；目标远程落后 → 存在未推送提交。
     local _fz_ahead=0
     if [ "$_fz_have_target" -eq 1 ]; then
         _fz_ahead=$(git rev-list --count "$_fz_target_ref..HEAD" 2>/dev/null || echo 0)
@@ -201,12 +198,10 @@ _p_push() {
         return 0
     fi
 
-    # ⚠️ 版本号不再在这里自动改写。
-    #   旧实现在每次 `p` 时用 commit count 覆盖 fz-tools/fzgit.sh 的 FZ_VERSION，
-    #   导致：① 每次推送必然产生一次「版本号变动」提交；
-    #        ② 版本号与语义化版本脱钩（v5.142 不代表任何内容）；
-    #        ③ 多分支并行时该 sed 是固定的冲突源。
-    #   现由 scripts/version.sh 在发版时显式递增，日常 `p` 不再碰版本号。
+    # ⚠️ 版本号不在这里改写。发版请用 `bash version.sh bump`。
+    #   在推送流程里用 commit count 覆盖 FZ_VERSION 会带来三个问题：
+    #   每次推送必然多一次「版本号变动」提交、版本号与内容脱钩、
+    #   多分支并行时这行 sed 是固定冲突源。
 
     git add .
 
@@ -235,7 +230,7 @@ _p_push() {
         fi
     fi
 
-    # v5.1：无参数时提供默认备注确认，避免"⚡ update"直接提交不可改
+    # 无备注参数时给默认值并允许修改，不静默提交固定文案
     if [ -z "$msg" ]; then
         local def_msg
         def_msg="⚡ update: $(date '+%m-%d %H:%M')"
@@ -245,9 +240,10 @@ _p_push() {
 
     echo -e "\033[34m\n🚀 推送至 \033[1m${b_name}\033[0m\033[34m | 备注: ${msg}${skip_ci_flag}\033[0m"
 
-    # v5.104 修复：保留 commit 的真实报错，区分「真无变更」与「真失败」。
-    #  旧版 `git commit ... 2>/dev/null` 把失败原因吞掉，且一律当成
-    #  "无新变化"继续推 → 像身份缺失这类硬失败会假报"推送成功"。
+    # ── 提交失败必须如实报告 ──
+    #  `git commit` 的 stderr 不能丢掉：像 user.name/email 缺失这类硬失败
+    #  会被误当成『无变更』继续推送，最后假报『推送成功』而代码根本没进提交。
+    #  这里区分两种情况：真无变更 vs 真失败。
     local _commit_out
     if ! _commit_out=$(git commit -m "${msg}${skip_ci_flag}" 2>&1); then
         if echo "$_commit_out" | grep -qiE "nothing to commit|no changes added to commit"; then
@@ -262,20 +258,19 @@ _p_push() {
 
     local -a _push_args=("$_fz_remote" "$b_name")
     [ "$_fz_force_push" -eq 1 ] && _push_args+=("--force-with-lease")
-    # v5.100：push 只尝试一次，失败即进入统一诊断。
-    #   旧版此处会再 `git push -u` 重试——那会把当前分支的上游静默改写成本次
-    #   远程（缺陷 1 的成因之一）；现由 _fz_ensure_upstream 收敛为
-    #   「仅当尚无上游时才建立跟踪」。
-    #   另：不再做「--amend 补 [skip ci] 后重试」——那会擅自改写用户的提交
-    #   （HEAD 为 merge 提交时更会破坏其父节点），风险远大于收益。
-    #   首推场景 `git push <远程> <分支>` 本身即可创建远程分支，无需 -u。
+    # ── 推送只尝试一次，失败即进入统一诊断 ──
+    #  不做 `git push -u` 重试：那会把当前分支的上游静默改成本次远程，
+    #  多远程项目下会造成『上游漂移』。上游由 _fz_ensure_upstream 收敛为
+    #  『仅当尚无上游时才建立跟踪』。
+    #  也不做『--amend 补 [skip ci] 后重试』：那会擅自改写用户提交，
+    #  HEAD 是 merge 提交时更会破坏其父节点，风险远大于收益。
+    #  首推场景 `git push <远程> <分支>` 本身即可创建远程分支，无需 -u。
     if ! git push "${_push_args[@]}" 2>/dev/null; then
-        # v5.99：被拒不再甩一句"去 pull"就结束，进入统一引导
         _fz_push_rejected_guide "$_fz_remote" "$b_name"
         return 1
     fi
 
-    # v5.100：推送成功且当前分支尚无上游时才建立跟踪；已有上游绝不改写
+    # 推送成功且当前分支尚无上游时才建立跟踪；已有上游绝不改写
     _fz_ensure_upstream "$_fz_remote" "$b_name"
 
     local remote_name
@@ -285,7 +280,7 @@ _p_push() {
 }
 
 # ══════════════════════════════════════════
-#  🌿  按需建立上游跟踪（v5.100 新增）
+#  🌿  按需建立上游跟踪
 #  仅当当前分支还没有上游时设置；已有上游绝不改写，
 #  避免把 origin 静默换成 cnb（旧版 git push -u 的副作用）
 # ══════════════════════════════════════════
@@ -298,7 +293,7 @@ _fz_ensure_upstream() {
 }
 
 # ══════════════════════════════════════════
-#  📡  多远程未同步提示（v5.100 新增）
+#  📡  多远程未同步提示
 #  推完目标远程后，若其他远程该分支仍落后 / 尚无该分支，仅提示不自动推，
 #  避免用户以为"推了一次就全平台同步"（本次 bug 的认知来源）
 # ══════════════════════════════════════════
@@ -320,7 +315,7 @@ _fz_other_remotes_hint() {
 }
 
 # ══════════════════════════════════════════
-#  🧭  推送被拒统一引导（v5.99 新增，报错记录核心 bug）
+#  🧭  推送被拒统一引导
 #  push 失败时自动诊断原因，最常见的是「本地新项目 vs 远程已有内容」
 #  （unrelated histories）——旧版只会让用户去 pull，而 pull 对这种
 #  情况同样被拒，用户（不会 git 指令）就彻底卡死。现在自动修复。
@@ -332,10 +327,11 @@ _fz_push_rejected_guide() {
 
     echo -e "\n\033[31m❌ 推送到 $r_url 被拒绝\033[0m"
 
-    # v5.105：先确认能否连上远程。fetch 失败（网络/SSL/凭据）时，本地的
-    #  $remote/$branch 只是过期快照，基于它做"落后 / 无共同历史"诊断必然误判
-    #  （曾把一次网络抖动误报成"无共同历史"，还触发了自动 merge）。
-    #  连不上就明确报告并终止，绝不进入依赖远程信息的诊断分支。
+    # ── 先确认能否连上远程，再谈诊断 ──
+    #  fetch 失败（网络/SSL/凭据）时，本地的 $remote/$branch 只是过期快照，
+    #  基于它判断『落后 / 无共同历史』必然误判——一次网络抖动就曾被误报成
+    #  『无共同历史』并触发自动 merge。连不上就明确报告并终止，
+    #  绝不进入依赖远程信息的诊断分支。
     if ! git fetch --quiet "$_fz_remote" 2>/dev/null; then
         echo -e "\033[1;33m诊断结果：无法连接远程（网络不通 / SSL 中断 / 凭据失效）\033[0m"
         echo -e "  · 先检查网络，恢复后重试 \033[36mp\033[0m"

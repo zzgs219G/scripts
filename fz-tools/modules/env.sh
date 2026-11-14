@@ -5,10 +5,10 @@
 #        AI Key 配置 / 自更新（git pull 版）
 #  包含函数：_setup_env  _github_login  _create_repo  _remote_mgr
 #            _trust_dir  _ai_setup  _update_script  _fz_ver_gt
-#  对应别名：setup  login  repo  remote  trust  aikey  up
+#  对应别名：setup  ghlogin(login)  repo  remote  trust  aikey  up
 #  说明：_create_repo / _remote_mgr 属 GitHub 环境相关，计划书
 #        未单列，按就近原则归入本模块。
-#  ⚠️ v4.0 加固：_github_login 增加非交互终端检测，避免管道
+#  ⚠️ _github_login 有非交互终端检测，避免管道
 #     环境下 gh auth login 阻塞轮询
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
@@ -91,11 +91,11 @@ _setup_env() {
 
     echo -e "\n\033[32m✨ 环境配置完成！\033[0m"
 
-    # v5.0：书签初始化（若书签为空，引导创建 / 迁移旧 FZ_BASE）
+    # 书签初始化（为空时引导创建，或迁移用户显式设置过的旧 FZ_BASE）
     echo ""
     _bm_init
 
-    echo -e "  下一步: \033[36mlogin\033[0m 登录 GitHub"
+    echo -e "  下一步: \033[36mghlogin\033[0m 登录 GitHub"
     echo -e "  AI commit: 执行 \033[36maikey\033[0m 配置\n"
 }
 
@@ -120,14 +120,14 @@ _gh_ensure_credential() {
 }
 
 # ══════════════════════════════════════════
-#  🔑  GitHub 登录（login）
+#  🔑  GitHub 登录（ghlogin / login 兼容）
 # ══════════════════════════════════════════
 _github_login() {
     echo -e "\n\033[1;35m🔑 GitHub 登录向导\033[0m\n"
 
-    # v4.0 加固：非交互环境（管道/脚本）下 gh 交互流程会阻塞，提前退出
+    # 非交互环境（管道/脚本）下 gh 的交互流程会阻塞，必须提前退出
     if [ ! -t 0 ]; then
-        echo -e "\033[31m❌ login 需要交互终端，请直接在终端中执行\033[0m"
+        echo -e "\033[31m❌ ghlogin 需要交互终端，请直接在终端中执行\033[0m"
         return 1
     fi
 
@@ -175,7 +175,7 @@ _create_repo() {
         echo -e "\033[31m❌ 需要先安装 GitHub CLI，执行 'setup'\033[0m"; return 1
     fi
     if ! gh auth status &>/dev/null; then
-        echo -e "\033[31m❌ 尚未登录 GitHub，执行 'login'\033[0m"; return 1
+        echo -e "\033[31m❌ 尚未登录 GitHub，执行 \033[36mghlogin\033[0m\033[31m 登录\033[0m"; return 1
     fi
 
     local default_name
@@ -233,7 +233,7 @@ _create_repo() {
 }
 
 # ══════════════════════════════════════════
-#  🌐  平台 URL 模板（v5.2 新增，多平台推送支持）
+#  🌐  平台 URL 模板（多平台推送支持）
 #  各平台远程地址拼装规则；{user}=用户名/组织 {repo}=仓库名
 #  新增平台只需在此表和 _fz_platform_hint 各加一行
 # ══════════════════════════════════════════
@@ -273,7 +273,7 @@ _fz_platform_of() {
 }
 
 # 交互式确定远程 URL（返回全局变量 FZ_REMOTE_URL，失败置空）
-# v5.99 重构（修复"平台选择卡死 + 无法粘贴 URL"）：
+# 交互设计要点（平台选择要能退出、URL 要能直接粘贴）：
 #   1. 旧版把 "$(_fz_platforms | cut -d'|' -f1)" 作为一个带引号参数传给
 #      _fz_picker，6 个平台被压成 1 个含换行的条目 → picker n=1，
 #      ↑/↓ 指示器永远不动（用户视角即"卡死"）。现改为逐行读入数组。
@@ -289,7 +289,7 @@ _fz_build_url() {
         p_tmpls+=("$tmpl")
     done < <(_fz_platforms)
 
-    # ── 方式二选一（v5.99）：URL 直粘 / 用户名+仓库名拼装 ──
+    # ── 二选一：URL 直粘 / 用户名+仓库名拼装 ──
     # 平台表只在"名字拼装"分支出现；URL 粘贴天然跨平台无需平台表
     _fz_picker "绑定方式: " \
         "📎 粘贴完整仓库 URL（任意平台，自动识别，推荐）" \
@@ -343,7 +343,7 @@ _fz_build_url() {
 }
 
 # ══════════════════════════════════════════
-#  🔗  远程仓库管理（remote）v5.97 轻量化
+#  🔗  远程仓库管理（remote）
 #  设计原则：绑定一个新远程只该做一件事——选平台 → 填用户名/仓库名 → 完成，
 #  不再弹"四项主菜单"绕路；默认直接引导绑定/切换 origin（p 的默认远程），
 #  绑定非 origin 远程时提示后续用 p 远程名 推送。
@@ -357,7 +357,7 @@ _remote_mgr() {
     cur_url=$(git remote get-url origin 2>/dev/null)
     [ -n "$cur_url" ] && echo -e "\033[90m识别平台: $(_fz_platform_of "$cur_url")（执行 p 默认推送到 origin）\033[0m"
 
-    # v5.97：先定目标远程（回车默认 origin，覆盖 p 的默认推送目标）
+    # 先定目标远程（回车默认 origin），决定后续操作作用于哪个远程
     _fz_picker "绑定到哪个远程（回车=origin）: " \
         "origin（p 默认推送目标）" \
         "新建远程（如 cnb / gitee，之后用 p 远程名 推送）" \
@@ -372,7 +372,7 @@ _remote_mgr() {
             r_name="${r_name:-cnb}"
             target="$r_name" ;;
         3)
-            # v5.99：删除远程改为 picker 选择（旧版裸 read 手打名字，
+            # 用 picker 选择而非手打名字：
             # 输错/输不存在时既不报错也不删除，表现为"删除不了"）
             local -a r_list=()
             while IFS= read -r r; do
@@ -422,7 +422,7 @@ _ai_setup() {
 
 # ══════════════════════════════════════════
 #  🔄  自更新（up）
-#  ⚠️ v4.0 起改为 git pull 更新整个仓库，
+#  ⚠️ 更新方式是 git pull 整个仓库，
 #     不再下载单文件注入（计划书 3.4 节）
 # ══════════════════════════════════════════
 _update_script() {
@@ -478,7 +478,7 @@ _update_script() {
 }
 
 # ══════════════════════════════════════════
-#  🎬  项目初始化（init）v5.99 新增
+#  🎬  项目初始化（init）
 #  空文件夹 → git init → 萌新引导链（绑远程 → 首次推送）
 #  设计要点：
 #   - 幂等：已是 git 仓库时提示后照常进入引导，不重复 init

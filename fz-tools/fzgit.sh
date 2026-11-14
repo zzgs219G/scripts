@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #  ════════════════════════════════════════════════════════════
-#  《焚诀·Git 工作流》 主入口  v5.0（智能书签·零硬编码版）
+#  《焚诀·Git 工作流》 主入口
 # ════════════════════════════════════════════════════════════
 #  安装（新方式，克隆后写入 ~/.bashrc）：
 #     git clone https://github.com/zzgs219G/scripts.git
@@ -14,14 +14,14 @@
 #    3. 全部别名注册
 #    4. 帮助菜单
 #  功能函数已拆分至各模块文件，请勿在本文件新增函数。
-#  ⚠️ v5.0 迁移策略：FZ_BASE 仅保留用于 burn.sh 输出备用，
-#     导航/克隆/拉取全部改为书签系统（~/.fz_bookmarks）。
+#  ⚠️ FZ_BASE 仅作 burn.sh 的输出兜底，不参与导航/克隆/拉取
+#     ——那三件事全部基于书签（~/.fz_bookmarks）。
 # ════════════════════════════════════════════════════════════
 
-# ── 版本号（v5.100 修复：p 以「目标远程」而非 @{u} 判断是否推送）──
-FZ_VERSION="5.111"
+# ── 版本号（发版用 bash version.sh bump，p 不再自动改写）──
+FZ_VERSION="5.112"
 
-# ── FZ_BASE：仅作 burn.sh 的输出兜底（v5.0 起不参与导航）──
+# ── FZ_BASE：仅作 burn.sh 的输出兜底 ──
 #     不探测、不创建目录：source 本文件时绝不写磁盘。
 #     需要时由 burn.sh 自行 mkdir，或用户显式 export 覆盖。
 #     FZ_BASE_USER_SET 区分「用户显式设置」与「本文件填的默认值」，
@@ -64,11 +64,14 @@ done
 unset _fz_mod _fz_mod_file _FZ_SRC _FZ_DIR
 
 # ══════════════════════════════════════════
-#  🔤  别名注册（v5.0）
+#  🔤  别名注册
 # ══════════════════════════════════════════
 alias up='_update_script'
 alias init='_fz_init'
 alias setup='_setup_env'
+# ⚠️ `login` 与系统 login(1) 同名（macOS/Linux 上真实存在）。
+#    主名改为 ghlogin；保留 login 作为兼容别名，老用户不会突然失效。
+alias ghlogin='_github_login'
 alias login='_github_login'
 alias repo='_create_repo'
 alias remote='_remote_mgr'

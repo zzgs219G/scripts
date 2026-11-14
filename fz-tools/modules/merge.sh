@@ -21,7 +21,7 @@ _ok_merge() {
         return 1
     fi
 
-    # v5.1：发布前检查工作区干净（避免 checkout 静默失败）
+    # 发布前检查工作区干净，否则 checkout 会静默失败
     if [ -n "$(git status -s 2>/dev/null)" ]; then
         echo -e "\033[33m⚠️ 工作区有未提交变更，建议先 \033[36msave\033[0m 暂存再发布\033[0m"
         read -rp "仍要继续？(y/n): " dirty_ok
@@ -49,7 +49,7 @@ _ok_merge() {
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         _git_auto_ignore
 
-        # v5.1：分步检查（修复原实现只看最后 push 结果、merge 失败误报的问题）
+        # 分步检查：只看最后 push 结果会让 merge 失败被误报成成功
         if ! git checkout "$dst"; then
             echo -e "\033[31m❌ 无法切换到 ${dst}（存在未提交变更，请先 save/pop 处理）\033[0m"
             return 1

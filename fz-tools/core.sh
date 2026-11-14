@@ -15,7 +15,7 @@ _check_git_repo() {
 }
 
 # 当前 Git 状态摘要（分支 / 变更数 / 领先落后 / 最近提交）
-# 供 c 进入项目、b 切换分支等场景复用（v5.1 新增）
+# 供 c 进入项目、b 切换分支等场景复用
 _git_status_summary() {
     local b_name changes ahead behind
     b_name=$(git branch --show-current 2>/dev/null)

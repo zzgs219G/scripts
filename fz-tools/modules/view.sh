@@ -4,9 +4,9 @@
 #  职责：日志 / 差异 / 仓库信息 / 远程仓库文件列表 / 帮助菜单
 #  包含函数：_log_pretty  _diff_view  _repo_info  _rls_remote  _fz_help
 #  对应别名：lg  d  info  rls  h
-#  ⚠️ v4.0 加固：_repo_info 的 git shortlog 增加 </dev/null，
+#  ⚠️ _repo_info 的 git shortlog 需要 </dev/null，
 #     避免 stdin 为管道（非交互/脚本环境）时 pager 挂起
-#  ⚠️ v5.103：帮助菜单分为两级 —— h（常用）/ h all（全部），
+#  ⚠️ 帮助菜单分两级 —— h（常用）/ h all（全部），
 #     低频指令代码全部保留，只是不在默认菜单里占位
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
@@ -59,7 +59,7 @@ _fz_help() {
   \033[36mrsx\033[0m         一键安装 / 升级 Reasonix CLI
   \033[36mup\033[0m          检查更新 / 升级《焚诀》
   \033[36msetup\033[0m       环境配置向导
-  \033[36mlogin\033[0m       登录 GitHub
+  \033[36mghlogin\033[0m    登录 GitHub
 
 \033[90m  更多指令（低频率）：\033[0m\033[36mh all\033[0m\n"
         return 0
@@ -75,7 +75,7 @@ _fz_help() {
   \033[36mpkg install git curl gh\033[0m
 \033[90m（Ubuntu/Debian: sudo apt install git curl gh）\033[0m
 
-\033[33m📌 安装后执行：\033[0m  \033[36msetup\033[0m  →  \033[36mlogin\033[0m  →  \033[36maikey\033[0m（可选）
+\033[33m📌 安装后执行：\033[0m  \033[36msetup\033[0m  →  \033[36mghlogin\033[0m  →  \033[36maikey\033[0m（可选）
 
 \033[1;35m╔══════════════════════════════════════════╗
 ║      指令秘籍                            ║
@@ -85,11 +85,11 @@ _fz_help() {
 \033[1;33m── 🌱 新手起步 ───────────────────────────\033[0m
   \033[36minit\033[0m       空文件夹一键初始化（自动引导绑远程/首次推送）
   \033[36msetup\033[0m      环境配置向导（git 用户名/邮箱/凭据检测）
-  \033[36mlogin\033[0m     登录 GitHub（浏览器/Token）
+  \033[36mghlogin\033[0m  登录 GitHub（浏览器/Token）
 
 \033[1;33m── 🔧 初始化 ────────────────────────────\033[0m
   \033[36msetup\033[0m    检查环境 + 配置 Git 全局信息
-  \033[36mlogin\033[0m    登录 GitHub（浏览器/Token）
+  \033[36mghlogin\033[0m  登录 GitHub（浏览器/Token）
   \033[36mrepo\033[0m     创建远程仓库
   \033[36mremote\033[0m   管理远程地址（增删改查）
   \033[36mtrust\033[0m    信任当前目录（safe.directory）

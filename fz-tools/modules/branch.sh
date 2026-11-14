@@ -15,7 +15,7 @@
 _branch_mgr() {
     _check_git_repo || return 1
 
-    # v5.0：增加当前所在书签/项目路径提示（计划书 6.1）
+    # 显示当前所在书签/项目路径
     local _bm_cur
     _bm_cur=$(_bm_current)
     if [ -n "$_bm_cur" ]; then
@@ -224,9 +224,9 @@ _sync_branch() {
         return 1
     fi
 
-    # v5.99 修复（报错记录 bug③）：旧版 rebase 失败回退 merge，merge 失败
-    # 也继续往下走并打印"✅ 同步完成"，把致命错误吞成假成功。现改为：
-    # 每一步失败立即终止并给出明确出路，绝不再报假成功。
+    # ── rebase 失败回退 merge；每一步失败必须立即终止 ──
+    #  不能继续往下走并打印「✅ 同步完成」——那会把致命错误吞成假成功。
+    #  失败时恢复原分支，并给出明确出路。
     if ! git rebase "origin/$cur_br" 2>/dev/null; then
         echo -e "\033[33m⚠️ rebase 遇到冲突，回退为 merge...\033[0m"
         git rebase --abort 2>/dev/null
@@ -268,7 +268,7 @@ _main_branch() {
 }
 
 # ══════════════════════════════════════════
-#  🧭  unrelated histories 萌新引导（v5.99 新增，报错记录核心 bug）
+#  🧭  unrelated histories 萌新引导
 #  场景：本地新项目推到"建库时勾了自动生成 README"的远程 →
 #        两边没有共同祖先，push 被拒、pull/merge 也拒绝。
 #  给出带后果说明的二选一：合并远程（保留远程 README）或覆盖远程。
@@ -282,7 +282,7 @@ _fz_unrelated_history_guide() {
     echo -e "  \033[33m[1]\033[0m 合并远程内容（推荐：远程的 README 会保留，历史合二为一）"
     echo -e "  \033[33m[2]\033[0m 用本地覆盖远程（远程上原有文件会被移除，如远程 README）"
     echo -e "  \033[33m[3]\033[0m 取消，我自己处理"
-    # v5.105：非交互环境（脚本 / 管道 / stdin 非 TTY）下 read 会立刻读到 EOF
+    # 非交互环境（脚本 / 管道 / stdin 非 TTY）下 read 会立刻读到 EOF，
     #  得到空值，旧版 ${uh_choice:-1} 会默认成"合并"并擅自 merge（曾误诊网络
     #  抖动为 unrelated histories 后自动合并）。现改为：非 TTY 时空输入按
     #  "取消"处理，绝不自动动代码；交互式回车仍默认合并（行为不变）。
@@ -291,7 +291,7 @@ _fz_unrelated_history_guide() {
     read -rp "请选择 (回车=${_uh_default}): " uh_choice
     case "${uh_choice:-$_uh_default}" in
         1)
-            # v5.100：合并/覆盖改为针对调用方指定的远程（旧版硬编码 origin，
+            # 合并/覆盖必须针对调用方指定的远程（不能硬编码 origin，
             #    p cnb 撞上 unrelated histories 时会去操作错误的远程）
             if git merge "${r}/${cur_br}" --allow-unrelated-histories --no-edit; then
                 echo -e "\033[32m✅ 已合并远程历史，现在执行 \033[1mp\033[0m\033[32m 即可推送\033[0m"
