@@ -47,21 +47,26 @@
 ```
 scripts/
 ├── README.md
+├── AGENTS.md              # 🆕 改动本仓库前的必读契约（AI/协作规范）
+├── get.sh                 # 🆕 一行安装 / 卸载入口
+├── version.sh             # 🆕 版本号管理（发版时显式递增）
+├── .shellcheckrc          # 🆕 shellcheck 基线配置
+├── .github/workflows/ci.yml  # 🆕 CI：lint / 语法 / bash3.2 / 冒烟 / 凭据扫描
 ├── docs/
-│   ├── 流程文档.md         # 🆕 完整流程：安装→日常→推送→炼化→异常恢复
+│   ├── 流程文档.md         # 完整流程：安装→日常→推送→炼化→异常恢复
 │   └── 新手指南.md         # 面向不会 Git 的用户（场景问答/平台指南/电脑使用）
 ├── .gitignore
-└── fz-tools/              # 《焚诀》工具包（v5.0 起）
+└── fz-tools/              # 《焚诀》工具包
     ├── fzgit.sh           # 主入口：环境变量 / 加载器 / 别名 / 帮助菜单
-    ├── core.sh            # 内部工具（校验 / 转义 / .gitignore）
+    ├── core.sh            # 内部工具（校验 / 状态摘要 / 凭据护栏 / 转义）
     ├── install.sh         # 安装 / 迁移脚本（旧版用户必看）
-    ├── smoke-test.sh      # 冒烟测试（$TMPDIR 隔离环境，零网络依赖）
+    ├── smoke-test.sh      # 冒烟测试（63 项，$TMPDIR 隔离，零网络依赖）
     └── modules/           # 功能模块，主入口自动加载
-        ├── env.sh         # 环境配置 / 多平台远程管理 / GitHub 登录 / 信任 / AI Key / 自更新
-        ├── bookmark.sh    # 🆕 书签管理（增删改查 / 首次引导 / FZ_BASE 迁移）
-        ├── nav.sh         # 🆕 c 命令三阶段交互导航 / 项目总览 / 移动复制
-        ├── clone.sh       # 🆕 交互式克隆（gh 仓库列表选择 / 自动书签注册）
-        ├── pullall.sh     # 🆕 批量拉取（基于书签，支持指定书签）
+        ├── env.sh         # 环境配置 / 多平台远程 / GitHub 登录 / 信任 / AI Key / 自更新
+        ├── bookmark.sh    # 书签管理（增删改查 / 首次引导 / FZ_BASE 迁移）
+        ├── nav.sh         # c 命令三阶段交互导航 / 项目总览 / 移动复制
+        ├── clone.sh       # 交互式克隆（gh 仓库列表选择 / 自动书签注册）
+        ├── pullall.sh     # 批量拉取（基于书签，支持指定书签）
         ├── branch.sh      # 分支管理 / 重命名 / 清理 / 同步 / 回主线
         ├── push.sh        # 智能推送（含 AI 生成 commit message）
         ├── merge.sh       # 合并发布 / 撤回最后一次提交
@@ -69,7 +74,7 @@ scripts/
         ├── stash.sh       # 暂存与恢复
         ├── fix.sh         # 冲突解决引导
         ├── tag.sh         # 版本标签管理
-        ├── reasonix.sh    # 🆕 一键安装/升级 Reasonix CLI（Termux 编译安装）
+        ├── reasonix.sh    # 一键安装/升级 Reasonix CLI（Termux 编译安装）
         └── burn.sh        # 炼化源码（输出到项目上一级目录 / 第一个书签）
 ```
 
@@ -102,24 +107,43 @@ termux-setup-storage
 
 ## 安装（新用户）
 
+**一行安装（推荐）**：
+
 ```bash
-# 1. 安装核心依赖
-pkg install git curl gh
-
-# 2. 克隆仓库到 HOME 目录
-cd ~
-git clone https://github.com/zzgs219G/scripts.git
-
-# 3. 写入 ~/.bashrc（幂等，重复执行不会堆叠）
-sed -i '/fz-tools\/fzgit.sh/d' ~/.bashrc
-echo 'source "$HOME/scripts/fz-tools/fzgit.sh"' >> ~/.bashrc
-source ~/.bashrc
-
-# 4. 初始化环境与书签
-setup    # 检查环境 + 配置 Git 全局信息 + 创建书签
-login    # 登录 GitHub（可选，用于 cl/remote/repo 等功能）
-aikey    # 配置 AI commit Key（可选，推送时自动生成提交信息）
+pkg install git                      # Termux 先装 git
+curl -fsSL https://raw.githubusercontent.com/zzgs219G/scripts/main/get.sh | bash
 ```
+
+安装器会：克隆到 `~/.local/share/fz` → 幂等写入 `~/.bashrc` →
+自动跑一次 `setup`。重新打开终端即可用。
+
+卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zzgs219G/scripts/main/get.sh \
+  | bash -s -- --uninstall --yes
+```
+
+> 卸载会保留你的 `~/.fz_bookmarks`（书签）与 `~/.fz_ai_key`（Key）。
+
+**手动安装（想自己控制位置时）**：
+
+```bash
+pkg install git curl gh              # 核心依赖
+git clone https://github.com/zzgs219G/scripts.git
+cd scripts && bash fz-tools/install.sh
+setup    # 检查环境 + 配置 Git 全局信息 + 创建书签
+```
+
+### 为什么必须下载到本地（不能像 apk 那样“装个包”）
+
+因为 `c` 需要**改变当前 shell 的工作目录**，而 POSIX 规定任何子进程
+都无法改变父进程的 cwd。所以本工具只能是「被 `source` 的函数库」，
+必然需要本地文件副本 —— 与 `nvm` / `asdf` / `oh-my-zsh` 的形态一致。
+
+shell 脚本没有「编译成二进制」这一步：运行时就是你的 bash，源码即产物
+（`npm install -g` 装的也是源码）。差别不在编译，而在**有没有固定的
+安装位置和安装器** —— 这正是 `get.sh` 解决的问题。
 
 ## 迁移（旧版 curl 注入用户）
 
@@ -132,8 +156,9 @@ cd scripts
 bash fz-tools/install.sh
 ```
 
-install.sh 会自动：备份 `~/.bashrc`、删除旧注入块、迁移已配置的
-AI Key 到新主入口、写入新的 source 行。
+install.sh 会自动：备份 `~/.bashrc`、删除旧注入块、把已配置的
+AI Key 迁移到 `~/.fz_ai_key`（权限 600）、写入新的 source 行。
+若发现历史版本曾把 Key 写进仓库文件，会自动清空并提示轮换。
 
 ## v4.0 → v5.0 平滑升级（旧用户迁移指南）
 
@@ -156,6 +181,8 @@ v5.0 用「书签」取代了硬编码的 `FZ_BASE` 工作台。升级**零成�
 - **gh**（GitHub CLI）— login / repo / rls / 交互式克隆列表功能
 - **python3**（可选）— AI 响应解析更稳定
 - **Anthropic API Key**（可选）— `aikey` 配置后，`p` 推送自动生成 commit message
+  - Key 存放于 `~/.fz_ai_key`（权限 600），**不进入仓库、不会被推送**
+  - 删除该文件即可停用；`p` 在暂存区发现疑似凭据时会中止推送
 
 ## 指令总览（按模块）
 
@@ -263,6 +290,26 @@ v5.0 用「书签」取代了硬编码的 `FZ_BASE` 工作台。升级**零成�
   → 把 `~/.reasonix/config.toml` 的 `bash = "enforce"` 改为 `"off"`（不关闭则无权限）
 - 可覆盖变量：`RSX_REPO_URL` / `RSX_SRC_DIR` / `RSX_BRANCH`
 
+## 质量保障
+
+本仓库有一道自动化防线，提交前建议本地跑一遍：
+
+```bash
+shellcheck -S warning fz-tools/*.sh fz-tools/modules/*.sh get.sh version.sh
+bash fz-tools/smoke-test.sh        # 63 项，零网络依赖
+```
+
+CI（`.github/workflows/ci.yml`）在每次 push / PR 时执行 6 个 job：
+
+| job | 内容 |
+|---|---|
+| `lint` | shellcheck（Ubuntu + macOS，门槛 warning） |
+| `syntax` | `bash -n` 全量语法检查 |
+| `compat` | 用 macOS 自带 bash 3.2 验证兼容性 |
+| `smoke` | 63 项冒烟测试 + 校验安全用例未被删除 |
+| `no-secrets` | 扫描工作区凭据；全历史仅告警 |
+| `version` | 版本号格式合法 + `p` 未复活自动改版本号 |
+
 ## 更新机制
 
 `up` 不再下载单文件，而是基于 git 拉取整个仓库：
@@ -275,10 +322,17 @@ v5.0 用「书签」取代了硬编码的 `FZ_BASE` 工作台。升级**零成�
 3. 检测到新版本后询问确认，确认则 `git pull` 更新整个仓库
 4. 更新后自动重新加载 `~/.bashrc`（若提示无变化，手动执行 `source ~/.bashrc`）
 
-> **版本号说明**：推送 scripts 仓库时，`FZ_VERSION` 由「焚诀算法阵」
-> 按当前主版本自动递增（如 v5.x → v5.x+1）。v5.1 修复了旧版
-> 写死次版本导致版本号降级的 bug，因此 `p` 后版本号变化属正常行为，
-> 执行 `up` 即可同步本地。
+> **版本号说明**：版本号不再随推送自动递增。
+> 旧实现在每次 `p` 时用 commit 数量覆盖 `FZ_VERSION`，导致每次推送
+> 都必然产生一个「版本号变动」提交、版本号与内容脱钩、且多分支并行时
+> 是固定冲突源。现在改为发版时显式递增：
+>
+> ```bash
+> bash version.sh            # 查看当前版本
+> bash version.sh bump       # 次版本 +1（5.109 → 5.110）
+> bash version.sh bump major # 主版本 +1（5.109 → 6.0）
+> bash version.sh set 5.120  # 指定版本
+> ```
 
 ## v5.1 → v5.2 平滑升级
 
@@ -315,8 +369,8 @@ v5.1 不改变书签数据结构（`~/.fz_bookmarks`）与任何指令名，升�
   （有改动时 git pull 会拒绝，先提交或 stash）。
 - **旧版 `up` 报"获取远程版本失败"**：旧单文件已下线，请执行
   `bash fz-tools/install.sh` 迁移到新结构。
-- **`p` 推送 scripts 仓库后版本号变了**：这是焚诀算法阵的正常行为，
-  版本号按当前主版本 + 提交数自增（v5.1 起修复了写死次版本的降级 bug）。
+- **`p` 推送后版本号还会变吗**：不会。版本号只在显式执行
+  `bash version.sh bump` 时变化，`p` 不再改写它（旧版每次推送都会改）。
 
 ## 回滚
 

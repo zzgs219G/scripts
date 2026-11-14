@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master, dev]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: shellcheck (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 shellcheck
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install shellcheck
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq shellcheck
+          fi
+          shellcheck --version
+
+      - name: shellcheck（门槛 warning）
+        shell: bash
+        run: |
+          shellcheck -S warning \
+            fz-tools/fzgit.sh \
+            fz-tools/core.sh \
+            fz-tools/install.sh \
+            fz-tools/smoke-test.sh \
+            fz-tools/modules/*.sh \
+            get.sh \
+            version.sh
+
+  syntax:
+    name: bash 语法 + bash 3.2 兼容性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n 全量语法检查
+        shell: bash
+        run: |
+          fail=0
+          for f in fz-tools/*.sh fz-tools/modules/*.sh get.sh version.sh; do
+            if ! bash -n "$f"; then
+              echo "::error file=$f::语法错误"
+              fail=1
+            fi
+          done
+          exit $fail
+
+  compat:
+    name: bash 3.2 兼容性（macOS 自带）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 用真实 bash 3.2 解析全部脚本
+        shell: /bin/bash
+        run: |
+          echo "bash 版本: $BASH_VERSION"
+          case "$BASH_VERSION" in
+            3.2*) ;;
+            *) echo "::warning::非 bash 3.2（$BASH_VERSION），兼容性验证意义有限" ;;
+          esac
+          for f in fz-tools/fzgit.sh fz-tools/core.sh fz-tools/install.sh fz-tools/modules/*.sh get.sh version.sh; do
+            /bin/bash -n "$f" || { echo "::error file=$f::bash 3.2 语法不兼容"; exit 1; }
+          done
+          echo "✅ bash 3.2 解析通过"
+
+  smoke:
+    name: 冒烟测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 git 身份
+        run: |
+          git config --global user.name  "ci"
+          git config --global user.email "ci@example.com"
+
+      - name: 运行冒烟测试（零网络依赖）
+        shell: bash
+        run: bash fz-tools/smoke-test.sh
+
+      - name: 安全回归必须存在
+        shell: bash
+        run: |
+          # 防止有人删掉 T12 安全用例来「让 CI 变绿」
+          grep -q 'T12a' fz-tools/smoke-test.sh || { echo "::error::T12 安全回归用例被移除"; exit 1; }
+          grep -q 'T12e' fz-tools/smoke-test.sh || { echo "::error::T12 安全回归用例被移除"; exit 1; }
+          grep -q 'T13f' fz-tools/smoke-test.sh || { echo "::error::T13 安装器用例被移除"; exit 1; }
+
+  no-secrets:
+    name: 仓库内不得含凭据
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 扫描工作区
+        shell: bash
+        run: |
+          # 与运行时护栏同源的规则：高熵前缀 + 排除占位符
+          # 排除 smoke-test.sh：它必须包含假 Key 才能测护栏本身
+          pat='(sk-ant-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|AIza[A-Za-z0-9_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+          hits=$(grep -rInE "$pat" . \
+                   --exclude-dir=.git \
+                   --exclude=smoke-test.sh 2>/dev/null \
+                 | grep -vE ':\s*#' \
+                 | grep -vE 'SMOKE_TEST_FIXTURE' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::发现疑似凭据："
+            echo "$hits"
+            exit 1
+          fi
+          echo "✅ 工作区无凭据"
+
+      - name: 扫描全历史（仅报告，不阻断）
+        shell: bash
+        run: |
+          pat='(sk-ant-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+          if git log -p --all 2>/dev/null | grep -qE "^\+.*$pat"; then
+            echo "::warning::历史提交中出现过疑似凭据，请检查并轮换"
+          else
+            echo "✅ 全历史无凭据"
+          fi
+
+  version:
+    name: 版本号一致性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: FZ_VERSION 必须可读且格式合法
+        shell: bash
+        run: |
+          v=$(bash version.sh)
+          echo "当前版本: v$v"
+          if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::版本号格式非法: '$v'"
+            exit 1
+          fi
+          # p 不得再自动改写版本号
+          if grep -qE 'sed -i.*FZ_VERSION' fz-tools/modules/push.sh; then
+            echo "::error::push.sh 又出现了自动改写版本号的逻辑"
+            exit 1
+          fi
+          echo "✅ 版本号 $v 合法"

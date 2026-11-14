@@ -1,0 +1,16 @@
+# ShellCheck 配置
+#
+# 门槛：产品代码（fz-tools/*.sh、fz-tools/modules/*.sh、version.sh）
+#       必须在 `shellcheck -S warning` 下零告警。
+#       CI 与本地自检都用该命令。
+#
+# 说明：info/note 级（SC1091 动态 source、SC2016 awk 内单引号）属预期，
+#       不计入门槛，但仍会显示，便于发现新问题。
+
+# 兼容 bash 3.2（macOS 自带）—— 项目承诺跨平台
+shell=bash
+
+# ── info/note 级里确认无害、不必再审的项 ──
+# SC1091: source 路径运行时拼接（模块加载器 / 用户 .bashrc）
+# SC2016: awk 脚本内的单引号是刻意的（不希望 shell 展开 $ 变量）
+exclude=SC1090,SC1091,SC2016
