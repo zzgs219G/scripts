@@ -23,7 +23,8 @@ _stash_save() {
 # ══════════════════════════════════════════
 _stash_pop() {
     _check_git_repo || return 1
-    local list=$(git stash list)
+    local list
+    list=$(git stash list)
     if [ -z "$list" ]; then
         echo -e "\033[33m📦 暂存区为空\033[0m"; return 0
     fi

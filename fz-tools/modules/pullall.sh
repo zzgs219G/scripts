@@ -63,7 +63,7 @@ _pull_all() {
         echo -e "  \033[33m•\033[0m ${entry%%|*}${mark}"
     done
     echo -e "\033[90m共 ${#projects[@]} 个 Git 项目\033[0m"
-    read -p "确认开始批量拉取？(y/n): " confirm
+    read -rp "确认开始批量拉取？(y/n): " confirm
     if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
         echo -e "\033[90m已取消\033[0m"
         return 0
@@ -80,8 +80,7 @@ _pull_all() {
         pname=$(basename "$pdir")
         printf "  [%s] %-24s" "$bm_name" "$pname"
         local result
-        result=$(cd "$pdir" && git pull --quiet 2>&1)
-        if [ $? -eq 0 ]; then
+        if result=$(cd "$pdir" && git pull --quiet 2>&1); then
             echo -e "\033[32m✅\033[0m"
             success=$((success + 1))
         else
@@ -129,7 +128,7 @@ _pull_now() {
 
     if [ -n "$(git status -s 2>/dev/null)" ]; then
         echo -e "\033[33m⚠️ 存在未提交变更，pull 前建议先 \033[36msave\033[0m 暂存\033[0m"
-        read -p "仍要继续 pull？(y/n): " cont
+        read -rp "仍要继续 pull？(y/n): " cont
         if [[ "$cont" != "y" && "$cont" != "Y" ]]; then
             echo -e "\033[90m已取消\033[0m"
             return 1

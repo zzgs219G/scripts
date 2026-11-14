@@ -24,7 +24,7 @@ _ok_merge() {
     # v5.1：发布前检查工作区干净（避免 checkout 静默失败）
     if [ -n "$(git status -s 2>/dev/null)" ]; then
         echo -e "\033[33m⚠️ 工作区有未提交变更，建议先 \033[36msave\033[0m 暂存再发布\033[0m"
-        read -p "仍要继续？(y/n): " dirty_ok
+        read -rp "仍要继续？(y/n): " dirty_ok
         if [[ "$dirty_ok" != "y" && "$dirty_ok" != "Y" ]]; then
             echo -e "\033[90m已取消\033[0m"
             return 1
@@ -44,7 +44,7 @@ _ok_merge() {
     local count
     count=$(git rev-list "${dst}..${src}" --count 2>/dev/null)
     echo -e "\n\033[90m共 $count 个提交待合并\033[0m"
-    read -p "确认合并发布？(y/n): " confirm
+    read -rp "确认合并发布？(y/n): " confirm
 
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         _git_auto_ignore
@@ -67,7 +67,7 @@ _ok_merge() {
 
         echo -e "\033[32m✅ 功德圆满！已发布至 ${dst}\033[0m"
         git checkout "$src"
-        read -p "顺手打版本标签？(如 v1.0.0，回车跳过): " tag_ver
+        read -rp "顺手打版本标签？(如 v1.0.0，回车跳过): " tag_ver
         [ -n "$tag_ver" ] && _tag_mgr "$tag_ver" "release $tag_ver"
     else
         echo -e "\033[31m⛔ 已取消\033[0m"
@@ -80,14 +80,15 @@ _ok_merge() {
 _no_revert() {
     _check_git_repo || return 1
     local target="${1:-main}"
-    local cur=$(git branch --show-current)
+    local cur
+    cur=$(git branch --show-current)
 
     echo -e "\033[1;31m💀 警告：将撤回 ${target} 分支的最后一次提交！\033[0m"
     echo -e "\033[33m最近提交:\033[0m"
     git log "$target" --oneline -5 2>/dev/null | awk '{print "  "$0}'
     echo ""
 
-    read -p "确定吃后悔药？(y/n): " confirm
+    read -rp "确定吃后悔药？(y/n): " confirm
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         if git checkout "$target" && \
            git reset --hard HEAD~1 && \

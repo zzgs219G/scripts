@@ -64,7 +64,8 @@ _branch_mgr() {
 
         local i=1
         for br in "${branches[@]}"; do
-            local cur=$(git branch --show-current)
+            local cur
+            cur=$(git branch --show-current)
             if [ "$br" = "$cur" ]; then
                 echo -e "  \033[33m$i\033[0m. \033[32m* $br\033[0m \033[90m← 当前\033[0m"
             else
@@ -75,7 +76,7 @@ _branch_mgr() {
 
         echo -e "  \033[33m${i}\033[0m. \033[36m+ 创建新分支\033[0m"
         echo -e "  \033[33mq\033[0m. 取消\n"
-        read -p "选择编号 (回车默认进 dev): " choice
+        read -rp "选择编号 (回车默认进 dev): " choice
 
         if [ -z "$choice" ]; then
             git checkout dev 2>/dev/null || git checkout -b dev origin/dev 2>/dev/null || git checkout -b dev
@@ -85,7 +86,7 @@ _branch_mgr() {
         elif [ "$choice" = "q" ]; then
             return 0
         elif [ "$choice" = "$i" ]; then
-            read -p "新分支名: " new_br
+            read -rp "新分支名: " new_br
             if [ -n "$new_br" ]; then
                 git checkout -b "$new_br" && {
                     echo -e "\033[32m✨ 已创建并进入: $new_br\033[0m"
@@ -116,16 +117,16 @@ _branch_mgr() {
 
     elif [ "${1:-}" = "-d" ] || [ "${1:-}" = "del" ]; then
         local b_del="${2}"
-        [ -z "$b_del" ] && read -p "要删除的分支名: " b_del
-        read -p "确认删除本地分支 '$b_del'？(y/n): " confirm
+        [ -z "$b_del" ] && read -rp "要删除的分支名: " b_del
+        read -rp "确认删除本地分支 '$b_del'？(y/n): " confirm
         [[ "$confirm" == "y" || "$confirm" == "Y" ]] && \
             git branch -d "$b_del" && \
             echo -e "\033[32m🗑️ 已删除本地分支: $b_del\033[0m"
 
     elif [ "${1:-}" = "-dr" ] || [ "${1:-}" = "delremote" ]; then
         local b_del="${2}"
-        [ -z "$b_del" ] && read -p "要删除的远程分支名: " b_del
-        read -p "确认删除远程分支 'origin/$b_del'？(y/n): " confirm
+        [ -z "$b_del" ] && read -rp "要删除的远程分支名: " b_del
+        read -rp "确认删除远程分支 'origin/$b_del'？(y/n): " confirm
         [[ "$confirm" == "y" || "$confirm" == "Y" ]] && \
             git push origin --delete "$b_del" && \
             echo -e "\033[32m🗑️ 已删除远程分支: $b_del\033[0m"
@@ -141,19 +142,20 @@ _branch_mgr() {
 # ══════════════════════════════════════════
 _rename_branch() {
     _check_git_repo || return 1
-    local old_br=$(git branch --show-current)
+    local old_br
+    old_br=$(git branch --show-current)
     local new_br="${1:-}"
 
     if [ -z "$new_br" ]; then
         echo -e "\033[36m当前分支: \033[1m$old_br\033[0m"
-        read -p "新分支名: " new_br
+        read -rp "新分支名: " new_br
     fi
     [ -z "$new_br" ] && return 1
 
     git branch -m "$old_br" "$new_br"
 
     if git remote get-url origin &>/dev/null; then
-        read -p "同步删除远程旧分支并推送新分支？(y/n): " sync_remote
+        read -rp "同步删除远程旧分支并推送新分支？(y/n): " sync_remote
         if [[ "$sync_remote" == "y" || "$sync_remote" == "Y" ]]; then
             git push origin --delete "$old_br" 2>/dev/null
             git push -u origin "$new_br"
@@ -190,7 +192,7 @@ _clean_branches() {
         echo -e "  \033[31m- $br\033[0m"
     done
 
-    read -p "确认删除这 ${#merged[@]} 个分支？(y/n): " confirm
+    read -rp "确认删除这 ${#merged[@]} 个分支？(y/n): " confirm
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         for br in "${merged[@]}"; do
             git branch -d "$br" && echo -e "  \033[32m🗑️ 已删除: $br\033[0m"
@@ -205,7 +207,8 @@ _clean_branches() {
 # ══════════════════════════════════════════
 _sync_branch() {
     _check_git_repo || return 1
-    local cur_br=$(git branch --show-current)
+    local cur_br
+    cur_br=$(git branch --show-current)
 
     echo -e "\033[34m🔄 同步分支: \033[1m$cur_br\033[0m"
 
@@ -285,7 +288,7 @@ _fz_unrelated_history_guide() {
     #  "取消"处理，绝不自动动代码；交互式回车仍默认合并（行为不变）。
     local _uh_default="1"
     [ -t 0 ] || _uh_default="3"
-    read -p "请选择 (回车=${_uh_default}): " uh_choice
+    read -rp "请选择 (回车=${_uh_default}): " uh_choice
     case "${uh_choice:-$_uh_default}" in
         1)
             # v5.100：合并/覆盖改为针对调用方指定的远程（旧版硬编码 origin，
@@ -298,7 +301,7 @@ _fz_unrelated_history_guide() {
             fi
             ;;
         2)
-            read -p "⚠️ 确认覆盖远程？（远程原有文件将丢失）(y/n): " uh_ok
+            read -rp "⚠️ 确认覆盖远程？（远程原有文件将丢失）(y/n): " uh_ok
             if [[ "$uh_ok" == "y" || "$uh_ok" == "Y" ]]; then
                 if git push -u "$r" "$cur_br" --force; then
                     echo -e "\033[32m✅ 已用本地覆盖远程并建立跟踪，之后 \033[1mp\033[0m\033[32m 正常使用\033[0m"

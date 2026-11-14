@@ -12,7 +12,8 @@
 # ══════════════════════════════════════════
 _fix_conflict() {
     _check_git_repo || return 1
-    local conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null)
+    local conflicts
+    conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null)
 
     if [ -z "$conflicts" ]; then
         echo -e "\033[32m✅ 无冲突文件！\033[0m"
@@ -28,7 +29,8 @@ _fix_conflict() {
     echo -e "  3. 执行 \033[33mgit add <文件>\033[0m"
     echo -e "  4. 执行 \033[33mgit commit\033[0m\n"
 
-    local first=$(echo "$conflicts" | head -1)
-    read -p "用 nano 打开 '$first'？(y/n): " open_it
+    local first
+    first=$(echo "$conflicts" | head -1)
+    read -rp "用 nano 打开 '$first'？(y/n): " open_it
     [[ "$open_it" == "y" || "$open_it" == "Y" ]] && nano "$first"
 }

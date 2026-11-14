@@ -171,7 +171,8 @@ _log_pretty() {
 _diff_view() {
     _check_git_repo || return 1
     if [ -z "${1:-}" ]; then
-        local changed=$(git diff --stat 2>/dev/null)
+        local changed
+        changed=$(git diff --stat 2>/dev/null)
         if [ -z "$changed" ]; then
             echo -e "\033[32m✅ 工作区无未暂存的变更\033[0m"
         else

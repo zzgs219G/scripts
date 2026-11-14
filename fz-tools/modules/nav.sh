@@ -14,6 +14,23 @@
 # ════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════
+#  📏  单字符显示宽度（1=半角, 2=全角）
+#  为什么需要单独一个函数：
+#   旧版判断写作 [[ "$ch" == [^\x00-\x7F] ]]，但 bash 的 [[ ]]
+#    里 [\x00-\x7F] 不是数值范围，而是字符集合——`0-0` 与 `7-F`
+#    被当作字面范围，结果空格(0x20)、`!`(0x21)、`~`(0x7E) 等
+#    ASCII 标点全被判成「非 ASCII」，宽度算成 2。
+#    书签名/路径含空格极常见，菜单因此折行、指示器错位。
+#  现改为按 UTF-8 字节数判断：ASCII = 1 字节，多字节 = 全角。
+_fz_char_width() {
+    local ch="$1"
+    [ -z "$ch" ] && { echo 0; return; }
+    local bytes
+    bytes=$(LC_ALL=C printf '%s' "$ch" | wc -c | tr -d ' ')
+    if [ "${bytes:-1}" -gt 1 ]; then echo 2; else echo 1; fi
+}
+
+# ══════════════════════════════════════════
 #  🧭  通用选择器 _fz_picker（v5.3 融合版）
 #  渲染：编号直接印在每行前缀上（如 "❯ 1 项目A"），一套菜单同时
 #        提供 ↑/↓ 指示器与数字直选，调用方不再自行打印编号列表
@@ -90,13 +107,13 @@ _fz_picker() {
                 local w=0 j ch
                 for ((j = 0; j < ${#vis}; j++)); do
                     ch="${vis:j:1}"
-                    if [[ "$ch" == [^\x00-\x7F] ]]; then w=$((w + 2)); else w=$((w + 1)); fi
+                    w=$((w + $(_fz_char_width "$ch")))
                 done
                 if [ "$w" -gt "$max_w" ]; then
                     local acc=0 cut=${#vis}
                     for ((j = 0; j < ${#vis}; j++)); do
                         ch="${vis:j:1}"
-                        if [[ "$ch" == [^\x00-\x7F] ]]; then acc=$((acc + 2)); else acc=$((acc + 1)); fi
+                        acc=$((acc + $(_fz_char_width "$ch")))
                         if [ "$acc" -gt "$((max_w - 2))" ]; then cut=$j; break; fi
                     done
                     item="${vis:0:cut}…"
@@ -313,9 +330,9 @@ _c_jump() {
 
 # 阶段1内部：添加书签
 _c_add_bookmark() {
-    read -p "书签名称: " nb
+    read -rp "书签名称: " nb
     [ -z "$nb" ] && { echo -e "\033[33m已取消\033[0m"; return 1; }
-    read -p "书签路径: " np
+    read -rp "书签路径: " np
     [ -z "$np" ] && { echo -e "\033[33m已取消\033[0m"; return 1; }
     _bm_add "$nb" "$np"
 }
@@ -334,7 +351,7 @@ _c_enter_bookmark() {
     # 失效书签处理（计划书 8.1）
     if [ ! -d "$sel_path" ]; then
         echo -e "\033[31m⚠️ 书签 \"${sel_bm}\" 指向的目录已失效: ${sel_path}\033[0m"
-        read -p "是否移除该书签？(y/n): " rm_bm
+        read -rp "是否移除该书签？(y/n): " rm_bm
         if [[ "$rm_bm" == "y" || "$rm_bm" == "Y" ]]; then
             _bm_remove "$sel_bm"
         fi
@@ -365,7 +382,7 @@ _c_project_menu() {
         local _nav_d
         while IFS= read -r _nav_d; do
             [ -n "$_nav_d" ] && dirs+=("$_nav_d")
-        done < <(command ls -d */ 2>/dev/null | sed 's#/$##')
+        done < <(command ls -d -- */ 2>/dev/null | sed 's#/$##')
 
         echo -e "\n\033[1;36m📁 当前目录：\033[1m${bm_name}\033[0m \033[90m(${bm_path})\033[0m"
 
@@ -403,8 +420,10 @@ _c_project_menu() {
                     local idx=$((sel - 2))
                     if [ $idx -ge 0 ] && [ $idx -lt ${#dirs[@]} ]; then
                         local proj="${dirs[$idx]}"
-                        _c_project_ops "$bm_name" "$bm_path" "$proj"
-                        [ $? -eq 0 ] && return 0
+                        # _c_project_ops 返回 0 表示已 cd 到项目（结束整个 c 命令）
+                        if _c_project_ops "$bm_name" "$bm_path" "$proj"; then
+                            return 0
+                        fi
                     else
                         echo -e "\033[31m❌ 编号无效\033[0m"
                     fi
@@ -517,10 +536,10 @@ _bm_move_copy() {
         echo -e "  \033[33m[1]\033[0m 覆盖"
         echo -e "  \033[33m[2]\033[0m 重命名（加 _副本）"
         echo -e "  \033[33m[3]\033[0m 取消"
-        read -p "请选择: " cop
+        read -rp "请选择: " cop
         case "$cop" in
             1)
-                read -p "⚠️ 覆盖将删除目标目录，确认？(y/n): " ov
+                read -rp "⚠️ 覆盖将删除目标目录，确认？(y/n): " ov
                 if [[ "$ov" == "y" || "$ov" == "Y" ]]; then
                     rm -rf "$dst" || { echo -e "\033[31m❌ 删除目标失败\033[0m"; return 1; }
                 else
@@ -535,7 +554,7 @@ _bm_move_copy() {
 
     # ── 移动前二次确认（计划书 8.1 防误删）──
     if [ "$mode" = "move" ]; then
-        read -p "确认将 \033[1m${proj_name}\033[0m 移动到书签 \033[1m${dst_bm}\033[0m？(y/n): " confirm
+        read -rp "确认将 \033[1m${proj_name}\033[0m 移动到书签 \033[1m${dst_bm}\033[0m？(y/n): " confirm
         if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
             echo -e "\033[90m已取消\033[0m"
             return 1
@@ -565,7 +584,7 @@ _bm_move_copy() {
         return 0
     else
         echo -e "\033[32m✅ 已复制: \033[1m${proj_name}\033[0m → ${dst_bm}（原件保留）"
-        read -p "是否进入副本？(y/n): " go
+        read -rp "是否进入副本？(y/n): " go
         if [[ "$go" == "y" || "$go" == "Y" ]]; then
             cd "$dst" || return 1
             echo -e "\033[32m🚀 已进入副本: \033[1m${dst}\033[0m"

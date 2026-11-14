@@ -60,7 +60,7 @@ _clone_interactive() {
         i=$((i + 1))
     done
     echo -e "  \033[33m[q]\033[0m 取消"
-    read -p "请选择仓库编号: " sel
+    read -rp "请选择仓库编号: " sel
 
     if [[ "$sel" == "q" || "$sel" == "Q" ]]; then
         echo -e "\033[90m已取消\033[0m"
@@ -84,7 +84,7 @@ _clone_interactive() {
     echo -e "  \033[33m[1]\033[0m 当前目录 \033[90m($(pwd))\033[0m"
     echo -e "  \033[33m[2]\033[0m 选择书签目录"
     echo -e "  \033[33m[q]\033[0m 取消"
-    read -p "请选择: " loc
+    read -rp "请选择: " loc
 
     case "$loc" in
         1)
@@ -102,7 +102,7 @@ _clone_interactive() {
                 echo -e "  \033[33m[$j]\033[0m ${e%%|*} \033[90m(${e#*|})\033[0m"
                 j=$((j + 1))
             done
-            read -p "请选择书签编号: " bsel
+            read -rp "请选择书签编号: " bsel
             if [[ "$bsel" == "q" || "$bsel" == "Q" ]]; then
                 echo -e "\033[90m已取消\033[0m"
                 return 1
@@ -144,7 +144,8 @@ _clone_direct() {
     rname="${rname##*:}"
 
     # 指定书签目录
-    local target_dir="$(pwd)"
+    local target_dir
+    target_dir="$(pwd)"
     if [ -n "$reg_bm" ]; then
         local bm_path
         bm_path=$(_bm_get_path "$reg_bm") || { echo -e "\033[31m❌ 未找到书签: $reg_bm\033[0m"; return 1; }
@@ -192,9 +193,9 @@ _clone_exec() {
     if [ -n "$reg_bm" ]; then
         echo -e "\033[32m📌 已自动识别书签: \033[1m${reg_bm}\033[0m"
     else
-        read -p "将 ${rname} 加入书签？(y/n): " addbm
+        read -rp "将 ${rname} 加入书签？(y/n): " addbm
         if [[ "$addbm" == "y" || "$addbm" == "Y" ]]; then
-            read -p "书签名称（回车默认: 工作台）: " nb
+            read -rp "书签名称（回车默认: 工作台）: " nb
             nb="${nb:-工作台}"
             _bm_add "$nb" "$target_dir"
             echo -e "\033[32m📌 已加入书签: ${nb}\033[0m"
@@ -202,9 +203,13 @@ _clone_exec() {
     fi
 
     # ── 询问是否立即进入 ──
-    read -p "是否立即进入该项目？(y/n): " go
+    read -rp "是否立即进入该项目？(y/n): " go
     if [[ "$go" == "y" || "$go" == "Y" ]]; then
-        cd "$cloned_path"
+        # cd 失败必须如实报告：否则会打印「已进入」却仍停在原目录
+        if ! cd "$cloned_path"; then
+            echo -e "\033[31m❌ 无法进入 ${cloned_path}，请手动 cd\033[0m"
+            return 1
+        fi
         echo -e "\033[32m🚀 已进入: \033[1m${rname}\033[0m"
         local cur_br
         cur_br=$(git branch --show-current 2>/dev/null)

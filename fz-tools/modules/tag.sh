@@ -22,7 +22,7 @@ _tag_mgr() {
         echo -e "  \033[36mtag -d v1.0.0\033[0m     删除标签"
     elif [ "${1:-}" = "-d" ]; then
         local t="${2}"
-        [ -z "$t" ] && read -p "要删除的标签: " t
+        [ -z "$t" ] && read -rp "要删除的标签: " t
         git tag -d "$t"
         git push origin --delete "$t" 2>/dev/null
         echo -e "\033[32m🗑️ 已删除标签 $t\033[0m"
