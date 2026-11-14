@@ -16,7 +16,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 shellcheck
         shell: bash
@@ -45,7 +45,7 @@ jobs:
     name: bash 语法 + bash 3.2 兼容性
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: bash -n 全量语法检查
         shell: bash
@@ -63,26 +63,33 @@ jobs:
     name: bash 3.2 兼容性（macOS 自带）
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 用真实 bash 3.2 解析全部脚本
-        shell: /bin/bash
+        shell: bash
         run: |
-          echo "bash 版本: $BASH_VERSION"
-          case "$BASH_VERSION" in
+          # macOS 的 /bin/bash 是 3.2，用它而不是 $BASH（Runner 默认是 5.x）
+          B32=/bin/bash
+          echo "系统 bash: $("$B32" --version | head -1)"
+          case "$("$B32" -c 'echo $BASH_VERSION')" in
             3.2*) ;;
-            *) echo "::warning::非 bash 3.2（$BASH_VERSION），兼容性验证意义有限" ;;
+            *) echo "::warning::/bin/bash 非 3.2，兼容性验证意义有限" ;;
           esac
-          for f in fz-tools/fzgit.sh fz-tools/core.sh fz-tools/install.sh fz-tools/modules/*.sh get.sh version.sh; do
-            /bin/bash -n "$f" || { echo "::error file=$f::bash 3.2 语法不兼容"; exit 1; }
+          fail=0
+          for f in fz-tools/fzgit.sh fz-tools/core.sh fz-tools/install.sh \
+                   fz-tools/smoke-test.sh fz-tools/modules/*.sh get.sh version.sh; do
+            if ! "$B32" -n "$f"; then
+              echo "::error file=$f::bash 3.2 语法不兼容"
+              fail=1
+            fi
           done
-          echo "✅ bash 3.2 解析通过"
+          exit $fail
 
   smoke:
     name: 冒烟测试
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 配置 git 身份
         run: |
@@ -105,7 +112,7 @@ jobs:
     name: 仓库内不得含凭据
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -141,7 +148,7 @@ jobs:
     name: 版本号一致性
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: FZ_VERSION 必须可读且格式合法
         shell: bash
