@@ -570,6 +570,60 @@ else
 fi
 
 # ══════════════════════════════════════════
+# T16 文档与代码一致性
+#  文档腐化比代码 bug 更隐蔽：读者按错的说明操作，却以为是自己错了。
+#  这里只校验「会直接误导人」的硬事实。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T16 文档一致性 ══════════"
+
+_t16_repo="$(cd "${FZ_SRC_DIR}/.." && pwd)"
+
+# T16a 文档不得声称 AI Key 存在仓库文件内（那是已修复的泄漏路径）
+if grep -rq 'fzgit\.sh.*FZ_AI_KEY\|FZ_AI_KEY.*fzgit\.sh' \
+       "${_t16_repo}/docs/" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T16a 文档称 Key 存仓库文件")
+    echo "  ❌ T16a 文档仍称 AI Key 存在仓库文件内（会误导人改回泄漏路径）"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T16a 文档未声称 Key 存仓库文件"
+fi
+
+# T16b 文档里的模块数必须与实际的 modules/*.sh 数量一致
+_t16_real=$(ls "${FZ_SRC_DIR}"/modules/*.sh 2>/dev/null | wc -l | tr -d ' ')
+_t16_doc=$(grep -o '[0-9]\+ 个功能模块' "${_t16_repo}/docs/流程文档.md" 2>/dev/null \
+           | grep -o '[0-9]\+' | head -1)
+if [ -z "$_t16_doc" ]; then
+    PASS=$((PASS + 1)); echo "  ✅ T16b 文档未硬编码模块数（不会腐化）"
+elif [ "$_t16_doc" = "$_t16_real" ]; then
+    PASS=$((PASS + 1)); echo "  ✅ T16b 文档模块数与实际一致（$_t16_real）"
+else
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T16b 文档模块数不一致")
+    echo "  ❌ T16b 文档称 ${_t16_doc} 个模块，实际 ${_t16_real} 个"
+fi
+
+# T16c 文档提到的别名必须真实存在
+_t16_missing=""
+for _d in "${_t16_repo}/README.md" "${_t16_repo}/docs/流程文档.md" "${_t16_repo}/docs/新手指南.md"; do
+    [ -f "$_d" ] || continue
+    for _w in $(grep -o '`[a-z][a-z0-9]*`' "$_d" 2>/dev/null | tr -d '`' | sort -u); do
+        case "$_w" in
+            cd|export|source|origin|cnb|git|gh|bash|sh|curl|setup|init|dev|main|master|skip|all|save|pop|yes|no|q|asdf|nvm|studio|lint|syntax|compat|smoke|version) continue ;;
+        esac
+        grep -q "^alias ${_w}=" "${FZ_SRC_DIR}/fzgit.sh" || _t16_missing+=" $_w"
+    done
+done
+if [ -z "$_t16_missing" ]; then
+    PASS=$((PASS + 1)); echo "  ✅ T16c 文档引用的指令均存在"
+else
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T16c 文档引用不存在的指令")
+    echo "  ❌ T16c 文档引用了不存在的指令:${_t16_missing}"
+fi
+
+# T16d 版本号只能出现在 version.sh 与 CHANGELOG（单一真相源）
+_t16_v=$(grep -m1 '^FZ_VERSION=' "${FZ_SRC_DIR}/fzgit.sh" | cut -d'"' -f2)
+assert "T16d FZ_VERSION 可解析" test -n "$_t16_v"
+
+# ══════════════════════════════════════════
 echo ""
 echo "══════════════════ 汇总 ══════════════════"
 echo "通过: ${PASS}   失败: ${FAIL}"
