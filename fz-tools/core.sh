@@ -50,6 +50,77 @@ _git_auto_ignore() {
     fi
 }
 
+# 凭据护栏：`p` 前检查暂存区，命中疑似凭据的文件就拦下来
+# 为什么需要：`p` 会执行 `git add .`，若某处代码把 Key 写进受追踪的文件
+# （历史上 aikey 就曾 sed 进 fz-tools/fzgit.sh），一次推送即公开泄漏。
+# 这里只做「已暂存内容」的只读扫描，不改任何文件。
+#
+# 设计取舍：宁可漏报也不误报。
+#   漏报代价 = 回到修复前（本来就无保护）；
+#   误报代价 = 用户被拦在门口，最后学会无视这条警告。
+# 因此三层过滤：
+#   ① 正则先粗筛已知前缀与长度；
+#   ② 跳过注释行（文档举例不算）；
+#   ③ 熵校验：必须同时含大小写与数字，且不是全同一字符
+#      —— 这能放过 sk-ant-placeholder / ghp_xxxxxxx 这类占位符。
+# 返回 0 = 未发现; 1 = 发现疑似凭据（已打印命中位置）
+_SECRET_PATTERN='(sk-ant-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|AIza[A-Za-z0-9_-]{35}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+
+# 熵校验：候选串是否像真实凭据（而非占位符/文档示例）
+_fz_looks_like_secret() {
+    local tok="$1" body="$1"
+    case "$tok" in
+        sk-ant-*)    body="${tok#sk-ant-}" ;;
+        gh[pousr]_*) body="${tok#*_}" ;;
+        github_pat_*) body="${tok#github_pat_}" ;;
+        AIza*)       body="${tok#AIza}" ;;
+        xox*)        body="${tok#*-}" ;;
+        -----*)      return 0 ;;   # 私钥头本身即高危，不做熵校验
+    esac
+    [ -z "$body" ] && return 1
+    # 全同一字符（如 ghp_xxxxxxxx）→ 占位符
+    local uniq
+    uniq=$(printf '%s' "$body" | fold -w1 2>/dev/null | sort -u 2>/dev/null | wc -l | tr -d ' ')
+    [ "${uniq:-0}" -le 2 ] && return 1
+    # 真实 token 同时含大写/小写/数字
+    printf '%s' "$body" | grep -q '[0-9]' || return 1
+    printf '%s' "$body" | grep -q '[A-Z]' || return 1
+    printf '%s' "$body" | grep -q '[a-z]' || return 1
+    return 0
+}
+
+_fz_guard_staged_secrets() {
+    git rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+    local hits="" f
+    # 逐文件扫描暂存内容，便于报出文件名（git diff --cached 不直接带路径）
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        local cand found=""
+        while IFS= read -r cand; do
+            [ -z "$cand" ] && continue
+            if _fz_looks_like_secret "$cand"; then
+                found="$cand"
+                break
+            fi
+        done < <(git diff --cached -U0 -- "$f" 2>/dev/null \
+                   | grep -E '^\+' \
+                   | grep -vE '^\+\s*#' \
+                   | grep -oE "$_SECRET_PATTERN" 2>/dev/null)
+        [ -n "$found" ] && hits+="   ${f}  →  ${found:0:12}..."$'\n'
+    done < <(git diff --cached --name-only 2>/dev/null)
+
+    if [ -n "$hits" ]; then
+        echo -e "\033[31m⛔ 暂存区中发现疑似凭据，已中止推送：\033[0m" >&2
+        printf '%s' "$hits" | head -5 >&2
+        echo -e "\033[90m   修复：把密钥移出仓库（aikey 现在写入 ~/.fz_ai_key）\033[0m" >&2
+        echo -e "\033[90m   若确属误报，可手动 git add + git commit 绕过本检查；\033[0m" >&2
+        echo -e "\033[90m   若该 Key 已推送过，请立刻到平台后台轮换。\033[0m" >&2
+        return 1
+    fi
+    return 0
+}
+
 # JSON 转义（优先 python3，退化到纯 bash）
 _json_escape() {
     local s="${1:-}"

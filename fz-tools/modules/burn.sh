@@ -72,6 +72,8 @@ _f_burn() {
     fi
     if [ -z "$OUT_DIR" ] || [ ! -d "$OUT_DIR" ]; then
         OUT_DIR="${FZ_BASE:-${HOME}}"
+        # FZ_BASE 不再于 source 时预创建，这里按需建立（失败则退回 HOME）
+        mkdir -p "$OUT_DIR" 2>/dev/null || OUT_DIR="${HOME}"
     fi
 
     local OUT_NAME="code_${PROJECT_NAME}${MODE_TAG}${MODULE:+_${MODULE}}.txt"
@@ -261,7 +263,13 @@ _f_burn_scan() {
     # ② 黑名单：排除垃圾 / 敏感 / 体积杀手
     grep -vE "${_F_BURN_BLACK}" |
     # ③ 定向模块：可选，按路径关键词过滤（固定字符串，避免正则误伤）
-    { [ -n "$module" ] && grep -iF "$module" || cat; } |
+    # ⚠️ 不能写 { [ -n "$module" ] && grep -iF "$module" || cat; }：
+    #    grep 无匹配时返回 1，`||` 会触发 cat，导致过滤形同虚设。
+    ( if [ -n "$module" ]; then
+          grep -iF -- "$module" || true
+      else
+          cat
+      fi ) |
     sort
 }
 

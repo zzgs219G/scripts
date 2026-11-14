@@ -22,8 +22,10 @@ _ai_commit_msg() {
     [ -z "$FZ_AI_KEY" ] && return 1
     ! command -v curl &>/dev/null && return 1
 
-    local diff_content=$(git diff --staged --stat 2>/dev/null)
-    local diff_detail=$(git diff --staged 2>/dev/null | head -200)
+    local diff_content
+    diff_content=$(git diff --staged --stat 2>/dev/null)
+    local diff_detail
+    diff_detail=$(git diff --staged 2>/dev/null | head -200)
 
     [ -z "$diff_content" ] && return 1
 
@@ -153,7 +155,7 @@ _p_push() {
     # v5.0 前置检查：是否在书签项目内（计划书 6.2）
     if ! _bm_current >/dev/null; then
         echo -e "\033[33m⚠️ 当前目录不在任何书签项目内\033[0m"
-        read -p "是否继续推送？(y/n): " _cont
+        read -rp "是否继续推送？(y/n): " _cont
         if [[ "$_cont" != "y" && "$_cont" != "Y" ]]; then
             echo -e "\033[90m已取消\033[0m"
             return 1
@@ -193,7 +195,7 @@ _p_push() {
             echo -e "\n  \033[33m[1]\033[0m 先拉取合并再推送（推荐，走智能 pull 保护流程）"
             echo -e "  \033[33m[2]\033[0m 强制推送（以本地为准覆盖远程，安全模式 --force-with-lease）"
             echo -e "  \033[33m[3]\033[0m 取消，我自己处理"
-            read -p "请选择 (回车=1): " _sync_choice
+            read -rp "请选择 (回车=1): " _sync_choice
             case "${_sync_choice:-1}" in
                 1)
                     if _pull_now "$_fz_remote"; then
@@ -204,7 +206,7 @@ _p_push() {
                     fi
                     ;;
                 2)
-                    read -p "⚠️ 强推将以本地为准覆盖远程，远程上那 ${behind} 个新提交会被覆盖，确认？(y/n): " _fconfirm
+                    read -rp "⚠️ 强推将以本地为准覆盖远程，远程上那 ${behind} 个新提交会被覆盖，确认？(y/n): " _fconfirm
                     if [[ "$_fconfirm" == "y" || "$_fconfirm" == "Y" ]]; then
                         _fz_force_push=1
                     else
@@ -267,29 +269,26 @@ _p_push() {
         return 0
     fi
 
-    local remote_url=$(git remote get-url "$_fz_remote" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-    local next_version="" next_sub_ver=0 fz_file=""
-
-    # v4.0 重构后主入口位于 fz-tools/fzgit.sh（兼容旧位置）
-    if [[ "$remote_url" == *"zzgs219g/scripts"* ]]; then
-        for cand in fz-tools/fzgit.sh fzgit.sh; do
-            [ -f "$cand" ] && fz_file="$cand" && break
-        done
-    fi
-
-    if [ -n "$fz_file" ]; then
-        # v5.1：基于当前 FZ_VERSION 主版本递增（修复 v5.0 下写死 4. 的降级 bug）
-        local cur_ver="${FZ_VERSION:-5.0}"
-        local major_ver="${cur_ver%%.*}"
-        major_ver="${major_ver:-5}"
-        local commit_count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-        next_sub_ver=$((commit_count + 1))
-        next_version="${major_ver}.${next_sub_ver}"
-        sed -i "s/FZ_VERSION=\"[^\"]*\"/FZ_VERSION=\"${next_version}\"/g" "$fz_file"
-        echo -e "\033[35m✨ [焚诀算法阵] 历史提交 ${commit_count} 次，正在以 v${next_version} 准备上架...\033[0m"
-    fi
+    # ⚠️ 版本号不再在这里自动改写。
+    #   旧实现在每次 `p` 时用 commit count 覆盖 fz-tools/fzgit.sh 的 FZ_VERSION，
+    #   导致：① 每次推送必然产生一次「版本号变动」提交；
+    #        ② 版本号与语义化版本脱钩（v5.142 不代表任何内容）；
+    #        ③ 多分支并行时该 sed 是固定的冲突源。
+    #   现由 scripts/version.sh 在发版时显式递增，日常 `p` 不再碰版本号。
 
     git add .
+
+    # 凭据护栏：暂存区里若出现疑似 Key 立即中止（见 core.sh 说明）
+    # 中止时撤销本次暂存，避免明文凭据留在索引里被随手 git commit 带走。
+    if ! _fz_guard_staged_secrets; then
+        if git rev-parse HEAD >/dev/null 2>&1; then
+            git reset -q 2>/dev/null
+        else
+            git rm -r --cached -q . >/dev/null 2>&1   # 空仓库无 HEAD，reset 不可用
+        fi
+        echo -e "\033[90m已撤销本次暂存，文件内容未改动\033[0m"
+        return 1
+    fi
 
     local msg=""
     if [ -n "${_fz_msg_arg:-}" ]; then
@@ -298,15 +297,16 @@ _p_push() {
         msg=$(_ai_commit_msg)
         if [ -n "$msg" ]; then
             echo -e "\033[90m💡 AI建议: \033[0m\033[1m${msg}\033[0m"
-            read -p "使用此备注？(回车确认 / 输入自定义): " custom_msg
+            read -rp "使用此备注？(回车确认 / 输入自定义): " custom_msg
             [ -n "$custom_msg" ] && msg="$custom_msg"
         fi
     fi
 
     # v5.1：无参数时提供默认备注确认，避免"⚡ update"直接提交不可改
     if [ -z "$msg" ]; then
-        local def_msg="⚡ update: $(date '+%m-%d %H:%M')"
-        read -p "备注（回车使用默认: ${def_msg}）: " custom_msg
+        local def_msg
+        def_msg="⚡ update: $(date '+%m-%d %H:%M')"
+        read -rp "备注（回车使用默认: ${def_msg}）: " custom_msg
         msg="${custom_msg:-$def_msg}"
     fi
 
@@ -348,9 +348,6 @@ _p_push() {
     local remote_name
     remote_name=$(git remote get-url "$_fz_remote" 2>/dev/null || echo "$_fz_remote")
     echo -e "\033[32m✅ 已推送到远程仓库 [\033[1m${remote_name}\033[0m\033[32m] | ${change_count} 个文件变更\033[0m"
-    if [ -n "$fz_file" ]; then
-        echo -e "\033[35m💡 远程已更新至 v${next_version}，执行 \033[1mup\033[0m\033[35m 可更新本地环境\033[0m"
-    fi
     _fz_other_remotes_hint "$_fz_remote" "$b_name"
 }
 

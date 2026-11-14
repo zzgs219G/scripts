@@ -14,3 +14,10 @@ dist/
 fzgit.orig.sh
 fz_updater_*.sh
 fz_burn_tmp_*.txt
+
+# ── 凭据：API Key 存 HOME 下，绝不入库 ──
+#    aikey 写入 ~/.fz_ai_key（权限 600）。此处是兜底：
+#    若有人把 Key 文件放在仓库内，也不会被提交。
+.fz_ai_key
+fz_ai_key
+*.key.secret

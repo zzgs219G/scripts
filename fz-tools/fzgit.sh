@@ -19,21 +19,30 @@
 # ════════════════════════════════════════════════════════════
 
 # ── 版本号（v5.100 修复：p 以「目标远程」而非 @{u} 判断是否推送）──
-FZ_VERSION="5.109"
+FZ_VERSION="5.110"
 
-# ── FZ_BASE：仅作 burn.sh 输出备用（v5.0 不再参与导航）──
-#     v5.2 跨平台化：Termux 保留原探测，电脑端自动用 ~/repos
-if [ -d "/storage/emulated/0" ] 2>/dev/null; then
-    _FOUND_PATH=$(find /storage/emulated/0/常用/ -maxdepth 2 -type d -name "*克隆仓库*" 2>/dev/null | head -n 1)
-    export FZ_BASE="${_FOUND_PATH:-/storage/emulated/0/常用/工作台😡/克隆仓库}"
+# ── FZ_BASE：仅作 burn.sh 的输出兜底（v5.0 起不参与导航）──
+#     不探测、不创建目录：source 本文件时绝不写磁盘。
+#     需要时由 burn.sh 自行 mkdir，或用户显式 export 覆盖。
+#     FZ_BASE_USER_SET 区分「用户显式设置」与「本文件填的默认值」，
+#     供 bookmark.sh 判断是否走旧版迁移——否则默认值会让每个新用户
+#     都被误判为旧版用户，跳过首次引导。
+if [ -n "${FZ_BASE:-}" ]; then
+    export FZ_BASE_USER_SET=1
 else
-    export FZ_BASE="${HOME}/repos"
+    export FZ_BASE_USER_SET=0
 fi
-mkdir -p "${FZ_BASE}" 2>/dev/null
-unset _FOUND_PATH
+export FZ_BASE="${FZ_BASE:-${HOME}/repos}"
 
-# AI commit message 功能开关（aikey 配置后自动开启并持久化到本文件）
+# ── AI commit message 的 Key ──
+#     存在 ${HOME}/.fz_ai_key（权限 600），绝不写进本文件——
+#     本文件被 git 追踪，写进来会被 `p` 的 git add . 推到公开仓库。
 export FZ_AI_KEY=""
+if [ -r "${HOME}/.fz_ai_key" ]; then
+    FZ_AI_KEY="$(head -n 1 "${HOME}/.fz_ai_key" 2>/dev/null | tr -d '\r\n')"
+    export FZ_AI_KEY
+fi
+export FZ_AI_KEY_FILE="${HOME}/.fz_ai_key"
 
 # ── 路径自适应：无论从何处 source，都能定位自身与模块目录 ──
 _FZ_SRC="${BASH_SOURCE[0]}"
@@ -51,6 +60,7 @@ fi
 for _fz_mod in env bookmark nav branch push merge view stash fix tag burn clone pullall reasonix; do
     _fz_mod_file="${_FZ_DIR}/modules/${_fz_mod}.sh"
     if [ -f "${_fz_mod_file}" ]; then
+        # shellcheck source=/dev/null  # 路径运行时拼接，静态分析无法跟踪
         source "${_fz_mod_file}"
     else
         echo -e "\033[31m❌ [焚诀] 缺少模块文件: ${_fz_mod_file}\033[0m" >&2

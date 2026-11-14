@@ -22,10 +22,12 @@ _bm_init() {
         return 0
     fi
 
-    # 迁移策略：书签为空且旧 FZ_BASE 存在 → 导入为默认书签
-    if [ -n "$FZ_BASE" ] && [ -d "$FZ_BASE" ]; then
+    # 迁移策略：书签为空且「用户显式设置过」的旧 FZ_BASE 存在 → 导入为书签
+    #   FZ_BASE_USER_SET=0 表示 FZ_BASE 只是 fzgit.sh 填的默认值（~/repos），
+    #   全新用户不该因此跳过首次引导。
+    if [ "${FZ_BASE_USER_SET:-0}" = "1" ] && [ -n "$FZ_BASE" ] && [ -d "$FZ_BASE" ]; then
         echo -e "\033[1;35m📌 检测到旧版工作台（FZ_BASE），正在导入为书签...\033[0m"
-        read -p "书签名称（回车默认: 工作台）: " bm_name
+        read -rp "书签名称（回车默认: 工作台）: " bm_name
         bm_name="${bm_name:-工作台}"
         if _bm_add "$bm_name" "$FZ_BASE"; then
             echo -e "\033[32m✅ 已导入书签: \033[1m${bm_name}\033[0m → ${FZ_BASE}"
@@ -38,7 +40,7 @@ _bm_init() {
     echo -e "\n\033[1;35m📌 欢迎使用《焚诀》！先创建一个书签吧\033[0m"
     echo -e "\033[90m书签 = 一个顶层目录，里面的每个子文件夹都会被当作一个项目\033[0m"
     echo -e "\033[90m当前目录: $(pwd)\033[0m"
-    read -p "书签路径（回车=使用当前目录，或输入如 ${HOME}/repos）: " bm_path
+    read -rp "书签路径（回车=使用当前目录，或输入如 ${HOME}/repos）: " bm_path
     if [ -z "$bm_path" ]; then
         bm_path="$(pwd)"
         echo -e "\033[90m已使用当前目录: ${bm_path}\033[0m"
@@ -46,7 +48,7 @@ _bm_init() {
     # 取路径末尾文件夹名作为书签名默认值（去尾斜杠后取最后一段）
     local _bm_def="${bm_path%/}"; _bm_def="${_bm_def##*/}"
     [ -z "$_bm_def" ] && _bm_def="工作台"
-    read -p "书签名称（回车默认: ${_bm_def}）: " bm_name
+    read -rp "书签名称（回车默认: ${_bm_def}）: " bm_name
     bm_name="${bm_name:-$_bm_def}"
     mkdir -p "$bm_path" 2>/dev/null
     if _bm_add "$bm_name" "$bm_path"; then
@@ -255,12 +257,12 @@ _bookmark_mgr() {
         echo -e "  \033[33m[2]\033[0m 🗑️  删除书签"
         echo -e "  \033[33m[3]\033[0m ✏️  重命名书签"
         echo -e "  \033[33m[q]\033[0m 退出"
-        read -p "请选择操作: " op
+        read -rp "请选择操作: " op
 
         case "$op" in
             1)
                 echo -e "\033[90m当前目录: $(pwd)\033[0m"
-                read -p "书签路径（回车=使用当前目录，或输入绝对路径）: " np
+                read -rp "书签路径（回车=使用当前目录，或输入绝对路径）: " np
                 if [ -z "$np" ]; then
                     np="$(pwd)"
                     echo -e "\033[90m已使用当前目录: ${np}\033[0m"
@@ -268,16 +270,16 @@ _bookmark_mgr() {
                 # v5.106：书签名留空 → 自动取路径末尾文件夹名
                 local _bm_def="${np%/}"; _bm_def="${_bm_def##*/}"
                 [ -z "$_bm_def" ] && _bm_def="工作台"
-                read -p "书签名称（回车默认: ${_bm_def}）: " nb
+                read -rp "书签名称（回车默认: ${_bm_def}）: " nb
                 nb="${nb:-$_bm_def}"
                 _bm_add "$nb" "$np"
                 ;;
             2)
-                read -p "输入编号或名称: " del_key
+                read -rp "输入编号或名称: " del_key
                 [ -n "$del_key" ] && _bm_remove "$del_key"
                 ;;
             3)
-                read -p "输入要重命名的书签编号或名称: " old_key
+                read -rp "输入要重命名的书签编号或名称: " old_key
                 local old_name=""
                 if [[ "$old_key" =~ ^[0-9]+$ ]]; then
                     _bm_load
@@ -289,7 +291,7 @@ _bookmark_mgr() {
                     old_name="$old_key"
                 fi
                 [ -z "$old_name" ] && { echo -e "\033[31m❌ 未找到书签\033[0m"; continue; }
-                read -p "新名称: " new_name
+                read -rp "新名称: " new_name
                 [ -n "$new_name" ] && _bm_rename "$old_name" "$new_name"
                 ;;
             q|Q) return 0 ;;

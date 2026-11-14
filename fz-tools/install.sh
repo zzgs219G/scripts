@@ -22,6 +22,10 @@ if [ ! -f "${MAIN_FILE}" ]; then
     echo -e "\033[31m❌ 未找到主入口: ${MAIN_FILE}\033[0m"
     exit 1
 fi
+# REPO_ROOT 用于告诉用户仓库位置（up 依赖它是 git 仓库）
+if [ ! -d "${REPO_ROOT}/.git" ]; then
+    echo -e "\033[33m⚠️  ${REPO_ROOT} 不是 git 仓库，up（自动更新）将不可用\033[0m"
+fi
 if [ ! -f "${HOME}/.bashrc" ]; then
     echo -e "\033[33m⚠️  ~/.bashrc 不存在，将自动创建\033[0m"
     touch "${HOME}/.bashrc"
@@ -32,15 +36,20 @@ cp "${HOME}/.bashrc" "${HOME}/.bashrc.bak" 2>/dev/null && \
     echo -e "\033[90m💾 已备份 ~/.bashrc → ~/.bashrc.bak\033[0m"
 
 # 2. 迁移旧注入块中的 AI Key（如有）
+# ⚠️ 写入 ${HOME}/.fz_ai_key 而非仓库文件：MAIN_FILE 被 git 追踪，
+#    写进去会被 `p` 的 git add . 推送到公开仓库。
 OLD_KEY=$(awk '/# --- AI_GIT_WORKFLOW ---/,/# --- END ---/' "${HOME}/.bashrc" | sed -n 's/.*export FZ_AI_KEY="\([^"]*\)".*/\1/p' | tail -1)
+KEY_FILE="${HOME}/.fz_ai_key"
 if [ -n "$OLD_KEY" ]; then
-    if grep -q 'export FZ_AI_KEY=""' "${MAIN_FILE}"; then
-        ESCAPED_KEY=$(printf '%s' "$OLD_KEY" | sed 's/[\/&]/\\&/g')
-        sed -i "s|export FZ_AI_KEY=\"\"|export FZ_AI_KEY=\"${ESCAPED_KEY}\"|" "${MAIN_FILE}"
-        echo -e "\033[32m🔑 已迁移旧版 AI Key 到新主入口\033[0m"
-    else
-        echo -e "\033[33m⚠️  新主入口已配置 Key，跳过迁移\033[0m"
-    fi
+    ( umask 077; printf '%s\n' "$OLD_KEY" > "${KEY_FILE}" ) \
+        && chmod 600 "${KEY_FILE}" 2>/dev/null \
+        && echo -e "\033[32m🔑 旧版 AI Key 已迁移到 ${KEY_FILE}（权限 600）\033[0m"
+fi
+# 兜底清理：若历史版本曾把 Key 写进仓库主入口，这里恢复为空值
+if grep -qE '^export FZ_AI_KEY=".+"' "${MAIN_FILE}" 2>/dev/null; then
+    sed -i 's|^export FZ_AI_KEY=".*"|export FZ_AI_KEY=""|' "${MAIN_FILE}"
+    echo -e "\033[33m⚠️  已清除主入口中的明文 Key（仓库文件不得存放凭据）\033[0m"
+    echo -e "\033[33m   若该 Key 曾被推送，请到后台轮换\033[0m"
 fi
 
 # 3. 移除旧注入块与旧 source 注入行

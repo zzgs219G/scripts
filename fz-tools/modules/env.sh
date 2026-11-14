@@ -63,17 +63,19 @@ _setup_env() {
 
     echo ""
 
-    local cur_name=$(git config --global user.name)
+    local cur_name
+    cur_name=$(git config --global user.name)
     if [ -z "$cur_name" ]; then
-        read -p "📛 输入你的 Git 用户名: " git_name
+        read -rp "📛 输入你的 Git 用户名: " git_name
         [ -n "$git_name" ] && git config --global user.name "$git_name"
     else
         echo -e "👤 用户名: \033[33m$cur_name\033[0m"
     fi
 
-    local cur_email=$(git config --global user.email)
+    local cur_email
+    cur_email=$(git config --global user.email)
     if [ -z "$cur_email" ]; then
-        read -p "📧 输入你的 Git 邮箱: " git_email
+        read -rp "📧 输入你的 Git 邮箱: " git_email
         [ -n "$git_email" ] && git config --global user.email "$git_email"
     else
         echo -e "📧 邮箱: \033[33m$cur_email\033[0m"
@@ -142,14 +144,14 @@ _github_login() {
         echo -e "\033[32m✅ 当前登录状态:\033[0m"
         gh auth status
         echo ""
-        read -p "重新登录？(y/n): " relogin
+        read -rp "重新登录？(y/n): " relogin
         [[ "$relogin" != "y" && "$relogin" != "Y" ]] && return 0
     fi
 
     echo -e "\033[36m选择登录方式:\033[0m"
     echo -e "  \033[33m1\033[0m. 浏览器授权（推荐）"
     echo -e "  \033[33m2\033[0m. Token 登录"
-    read -p "请选择 (1/2): " choice
+    read -rp "请选择 (1/2): " choice
 
     if [ "$choice" = "2" ]; then
         echo -e "\nGitHub → Settings → Developer settings → Personal access tokens"
@@ -176,37 +178,49 @@ _create_repo() {
         echo -e "\033[31m❌ 尚未登录 GitHub，执行 'login'\033[0m"; return 1
     fi
 
-    local default_name=$(basename "$PWD")
-    read -p "📦 仓库名 (回车默认: ${default_name}): " repo_name
+    local default_name
+    default_name=$(basename "$PWD")
+    read -rp "📦 仓库名 (回车默认: ${default_name}): " repo_name
     repo_name="${repo_name:-$default_name}"
 
-    read -p "📝 仓库描述 (可选): " repo_desc
+    read -rp "📝 仓库描述 (可选): " repo_desc
 
     echo -e "\033[36m仓库类型:\033[0m  \033[33m1\033[0m. 公开  \033[33m2\033[0m. 私有（默认）"
-    read -p "请选择 (1/2): " vis_choice
+    read -rp "请选择 (1/2): " vis_choice
     local visibility="--private"
     [ "$vis_choice" = "1" ] && visibility="--public"
 
     local push_current="n"
     if git rev-parse --git-dir > /dev/null 2>&1; then
-        read -p "将当前目录推送到新仓库？(y/n): " push_current
+        read -rp "将当前目录推送到新仓库？(y/n): " push_current
     fi
 
     if [ "$push_current" = "y" ] || [ "$push_current" = "Y" ]; then
         git remote remove origin 2>/dev/null
     fi
 
+    local create_rc=0
     if [ -n "$repo_desc" ]; then
-        gh repo create "$repo_name" $visibility --description "$repo_desc"
+        gh repo create "$repo_name" $visibility --description "$repo_desc" || create_rc=$?
     else
-        gh repo create "$repo_name" $visibility
+        gh repo create "$repo_name" $visibility || create_rc=$?
     fi
 
-    [ $? -ne 0 ] && echo -e "\033[31m❌ 仓库创建失败！\033[0m" && return 1
+    if [ "$create_rc" -ne 0 ]; then
+        echo -e "\033[31m❌ 仓库创建失败！\033[0m"
+        return 1
+    fi
     echo -e "\033[32m✅ 仓库创建成功！\033[0m"
 
     if [[ "$push_current" == "y" || "$push_current" == "Y" ]]; then
-        local username=$(gh api user --jq '.login')
+        local username
+        username=$(gh api user --jq '.login' 2>/dev/null)
+        # gh 未登录/失败时 username 为空，拼出的 URL 会是 //repo.git（静默加错远程）
+        if [ -z "$username" ]; then
+            echo -e "\033[31m❌ 无法获取 GitHub 用户名（是否已 login？）\033[0m"
+            echo -e "\033[90m💡 执行 \033[36mlogin\033[0m\033[90m 登录后再试\033[0m"
+            return 1
+        fi
         local remote_url="https://github.com/${username}/${repo_name}.git"
         git remote add origin "$remote_url"
         _git_auto_ignore
@@ -283,7 +297,7 @@ _fz_build_url() {
     local mode="$FZ_PICK_RET"
 
     if [ "$mode" = "1" ]; then
-        read -p "粘贴完整远程 URL（https://... 或 git@...）: " FZ_REMOTE_URL
+        read -rp "粘贴完整远程 URL（https://... 或 git@...）: " FZ_REMOTE_URL
         [ -z "$FZ_REMOTE_URL" ] && return 1
         echo -e "\033[90m识别平台: $(_fz_platform_of "$FZ_REMOTE_URL")\033[0m"
         return 0
@@ -298,7 +312,7 @@ _fz_build_url() {
     local plat="${p_names[$i]}" tmpl="${p_tmpls[$i]}"
 
     if [ -z "$tmpl" ]; then
-        read -p "输入完整远程 URL: " FZ_REMOTE_URL
+        read -rp "输入完整远程 URL: " FZ_REMOTE_URL
         [ -n "$FZ_REMOTE_URL" ] || return 1
         return 0
     fi
@@ -309,16 +323,16 @@ _fz_build_url() {
         gh_user=$(gh api user --jq '.login' 2>/dev/null)
     fi
     if [ -n "$gh_user" ]; then
-        read -p "用户名/组织名（回车=${gh_user}）: " p_user
+        read -rp "用户名/组织名（回车=${gh_user}）: " p_user
         p_user="${p_user:-$gh_user}"
     else
-        read -p "用户名/组织名: " p_user
+        read -rp "用户名/组织名: " p_user
     fi
     [ -z "$p_user" ] && return 1
 
     local def_repo
     def_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-    read -p "仓库名（回车=${def_repo}）: " p_repo
+    read -rp "仓库名（回车=${def_repo}）: " p_repo
     p_repo="${p_repo:-$def_repo}"
     [ -z "$p_repo" ] && return 1
 
@@ -354,7 +368,7 @@ _remote_mgr() {
     case "$op" in
         2)
             local r_name
-            read -p "远程名称（如 cnb / gitee / upstream）: " r_name
+            read -rp "远程名称（如 cnb / gitee / upstream）: " r_name
             r_name="${r_name:-cnb}"
             target="$r_name" ;;
         3)
@@ -372,7 +386,7 @@ _remote_mgr() {
             local r_sel="$FZ_PICK_RET"
             [[ ! "$r_sel" =~ ^[0-9]+$ ]] && { echo -e "\033[90m已取消\033[0m"; return 0; }
             local r_del="${r_list[$((r_sel - 1))]%% *}"
-            read -p "确认删除 ${r_del}？(y/n): " r_ok
+            read -rp "确认删除 ${r_del}？(y/n): " r_ok
             if [[ "$r_ok" == "y" || "$r_ok" == "Y" ]]; then
                 git remote remove "$r_del" && echo -e "\033[32m✅ 已删除 $r_del\033[0m"
             else
@@ -400,8 +414,10 @@ _remote_mgr() {
 
 # ══════════════════════════════════════════
 #  🤖  AI 配置向导（aikey）
-#  ⚠️ v4.0 起 Key 持久化到主入口文件（FZ_MAIN），
-#     不再写入 ~/.bashrc（旧注入块已随迁移移除）
+#  ⚠️ Key 存在 ${HOME}/.fz_ai_key（权限 600），绝不写入仓库文件。
+#     fz-tools/fzgit.sh 被 git 追踪，早先版本把 Key sed 进该文件，
+#     而 `p` 会执行 `git add .` —— 配置过 aikey 后一次推送就把 Key
+#     推到公开仓库。现改为独立文件，与版本控制彻底隔离。
 # ══════════════════════════════════════════
 _ai_setup() {
     echo -e "\n\033[1;35m🤖 AI commit 配置\033[0m\n"
@@ -409,20 +425,30 @@ _ai_setup() {
 
     if [ -n "$FZ_AI_KEY" ]; then
         echo -e "\033[32m✅ 已配置 API Key\033[0m（${FZ_AI_KEY:0:8}...）"
-        read -p "重新配置？(y/n): " reconf
+        echo -e "\033[90m   存储位置: ${FZ_AI_KEY_FILE}\033[0m"
+        read -rp "重新配置？(y/n): " reconf
         [[ "$reconf" != "y" && "$reconf" != "Y" ]] && return 0
     fi
 
-    read -p "输入你的 Anthropic API Key (sk-ant-...): " input_key
-    if [ -n "$input_key" ]; then
-        local escaped_key
-        escaped_key=$(printf '%s' "$input_key" | sed 's/[\/&]/\\&/g')
-        if [ -n "$FZ_MAIN" ] && [ -f "$FZ_MAIN" ]; then
-            sed -i "s|export FZ_AI_KEY=\".*\"|export FZ_AI_KEY=\"${escaped_key}\"|" "$FZ_MAIN"
-        fi
-        export FZ_AI_KEY="$input_key"
-        echo -e "\033[32m✅ 已保存！下次 'p' 推送时将自动生成 commit message\033[0m\n"
+    read -rp "输入你的 Anthropic API Key (sk-ant-...): " input_key
+    if [ -z "$input_key" ]; then
+        echo -e "\033[90m已取消\033[0m"
+        return 0
     fi
+
+    local key_file="${FZ_AI_KEY_FILE:-${HOME}/.fz_ai_key}"
+    # 先以 600 权限创建，再写入；避免 Key 有一瞬间对其他用户可读
+    if ! ( umask 077; printf '%s\n' "$input_key" > "$key_file" ); then
+        echo -e "\033[31m❌ 写入 ${key_file} 失败\033[0m"
+        return 1
+    fi
+    chmod 600 "$key_file" 2>/dev/null
+    export FZ_AI_KEY="$input_key"
+    export FZ_AI_KEY_FILE="$key_file"
+
+    echo -e "\033[32m✅ 已保存到 ${key_file}（权限 600）\033[0m"
+    echo -e "\033[90m   该文件不在仓库内，不会被 git 提交\033[0m"
+    echo -e "\033[32m   下次 'p' 推送时将自动生成 commit message\033[0m\n"
 }
 
 # ══════════════════════════════════════════
@@ -465,13 +491,14 @@ _update_script() {
         return 0
     fi
 
-    read -p "发现新版本，是否升级？(y/n): " c
+    read -rp "发现新版本，是否升级？(y/n): " c
     [ "$c" != "y" ] && [ "$c" != "Y" ] && return 0
 
     echo -e "\033[33m⬆️ 开始拉取更新...\033[0m"
 
     if git -C "$repo_root" pull --quiet; then
         # 更新后重新加载（~/.bashrc 中已有 source 指向新主入口）
+        # shellcheck source=/dev/null  # 用户环境文件，静态分析不适用
         source ~/.bashrc 2>/dev/null
         echo -e "\033[32m🎉 焚诀更新成功！当前版本已进化至 v$remote_version\033[0m"
         echo -e "\033[90m💡 若提示无变化，请手动执行: source ~/.bashrc\033[0m"
@@ -515,15 +542,35 @@ _fz_init() {
     fi
 
     # ── 萌新引导链 ──
+    # has_remote 决定默认选项：已绑远程时「试试推送」才有意义
     local has_remote
     has_remote=$(git remote | head -1)
-    _fz_picker "下一步做什么: " \
-        "🔗 绑定远程仓库（绑定后才能备份到云端）" \
-        "🚀 直接试试推送 p（没绑远程会失败）" \
-        "✅ 暂时不用，我自己来（随时执行 h 查看全部指令）"
+    if [ -n "$has_remote" ]; then
+        _fz_picker "下一步做什么: " \
+            "🚀 直接试试推送 p（已绑定远程 [${has_remote}]）" \
+            "🔗 管理远程仓库" \
+            "✅ 暂时不用，我自己来（随时执行 h 查看全部指令）"
+    else
+        _fz_picker "下一步做什么: " \
+            "🔗 绑定远程仓库（绑定后才能备份到云端）" \
+            "🚀 直接试试推送 p（没绑远程会失败）" \
+            "✅ 暂时不用，我自己来（随时执行 h 查看全部指令）"
+    fi
     case "$FZ_PICK_RET" in
-        1) _remote_mgr ;;
-        2) _p_push ;;
+        1)
+            if [ -n "$has_remote" ]; then
+                _p_push
+            else
+                _remote_mgr
+            fi
+            ;;
+        2)
+            if [ -n "$has_remote" ]; then
+                _remote_mgr
+            else
+                _p_push
+            fi
+            ;;
         *) echo -e "\033[90m💡 已初始化完成。常用: p=推送 · st=状态 · cl=克隆 · h=全部指令\033[0m" ;;
     esac
 }
