@@ -469,6 +469,66 @@ else
 fi
 
 # ══════════════════════════════════════════
+# T14 AI 备注（可选功能，默认关闭）
+#  核心保证：
+#  · 未配置 → 零网络请求（不能让用户莫名被计费/外发）
+#  · 只支持 OpenAI 兼容协议（不绑定单一厂商）
+#  · 任何异常 → 静默返回失败，p 降级到默认备注
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T14 AI 备注（可选功能）══════════"
+
+# T14a 未配置时未就绪
+_t14_h="$TEST_ROOT/t14_home"; mkdir -p "$_t14_h"
+assert "T14a 未配置时 AI 未就绪" \
+    bash -c "HOME='$_t14_h'; unset FZ_AI_KEY FZ_AI_BASE_URL FZ_AI_MODEL FZ_AI_CONF_FILE; \
+             source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; ! _fz_ai_ready"
+
+# T14b 配置文件读取
+mkdir -p "$_t14_h"
+cat > "$_t14_h/.fz_ai.conf" <<'CONF'
+FZ_AI_BASE_URL=https://example.test/v1
+FZ_AI_MODEL=test/model
+FZ_AI_KEY=nvapi-TEST
+CONF
+chmod 600 "$_t14_h/.fz_ai.conf"
+assert "T14b 读取配置文件后 AI 就绪" \
+    bash -c "HOME='$_t14_h'; unset FZ_AI_KEY FZ_AI_BASE_URL FZ_AI_MODEL FZ_AI_CONF_FILE; \
+             source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; _fz_ai_ready"
+
+# T14c 响应解析：各种模型输出脏格式都要能清干净
+_t14_parse() {
+    bash -c "HOME='$_t14_h'; source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; \
+             _fz_ai_extract_content \"\$1\"" _ "$1"
+}
+assert "T14c 解析纯文本" test "$(_t14_parse '{"choices":[{"message":{"content":"feat: 新增"}}]}')" = "feat: 新增"
+assert "T14d 解析代码块包裹" test "$(_t14_parse '{"choices":[{"message":{"content":"```\nfix: 修复\n```"}}]}')" = "fix: 修复"
+assert "T14e 多行只取首行" test "$(_t14_parse '{"choices":[{"message":{"content":"chore: 更新\n解释"}}]}')" = "chore: 更新"
+
+# T14f 异常响应必须静默失败（不能假报成功）
+assert "T14f 空 content 判定失败" \
+    bash -c "HOME='$_t14_h'; source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; \
+             ! _fz_ai_extract_content '{\"choices\":[{\"message\":{\"content\":\"\"}}]}'"
+assert "T14g 非 JSON 判定失败" \
+    bash -c "HOME='$_t14_h'; source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; \
+             ! _fz_ai_extract_content 'garbage'"
+assert "T14h 错误响应判定失败" \
+    bash -c "HOME='$_t14_h'; source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; \
+             ! _fz_ai_extract_content '{\"error\":{\"message\":\"invalid key\"}}'"
+
+# T14i 不得绑定单一厂商：代码里不应出现 anthropic 专用协议头
+if grep -q 'api\.anthropic\.com\|x-api-key\|anthropic-version' \
+        "${FZ_SRC_DIR}/modules/ai.sh" "${FZ_SRC_DIR}/modules/push.sh" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T14i 仍绑定 Anthropic 专用协议"); echo "  ❌ T14i"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T14i 已改为通用 OpenAI 兼容协议"
+fi
+
+# T14j 关闭功能后配置被删除
+bash -c "HOME='$_t14_h'; source '${FZ_SRC_DIR}/core.sh'; source '${FZ_SRC_DIR}/modules/ai.sh'; _fz_ai_off" >/dev/null 2>&1
+assert "T14j aikeyoff 删除配置文件" test ! -f "$_t14_h/.fz_ai.conf"
+
+# ══════════════════════════════════════════
 echo ""
 echo "══════════════════ 汇总 ══════════════════"
 echo "通过: ${PASS}   失败: ${FAIL}"

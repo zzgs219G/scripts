@@ -1,80 +1,12 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════
 #  焚诀·Git 工作流 — push.sh（推送模块）
-#  职责：自动暂存所有变更 / AI 生成 commit message / 推送远端
-#  包含函数：_p_push  _ai_commit_msg  _fz_parse_push_args
-#            _fz_ensure_upstream  _fz_other_remotes_hint  _fz_push_rejected_guide
-#  对应别名：p（支持 skip 跳过 CI / 远程名 / "备注"）
-#  ⚠️ v5.100 核心修复（多远程假"无需推送"）：
-#     判断基准从 @{u}（当前分支上游）改为「本次目标远程 $_fz_remote/$b_name」。
-#     旧版当上游指向另一个远程（如 cnb）时，ahead 恒为 0 → 假报
-#     "没有任何变更，无需推送"并直接 return，git push origin 从未执行，
-#     GitHub 永远停在旧版。
-#  ⚠️ v4.0 适配：scripts 仓库的版本号自增逻辑改为
-#     定位 fz-tools/fzgit.sh（兼容旧根目录位置）
+#  职责：智能推送（防冲突检测 / 多远程 / AI 备注 / 统一失败引导）
+#  包含函数：_fz_parse_push_args  _p_push  _fz_ensure_upstream
+#            _fz_other_remotes_hint  _fz_push_rejected_guide
+#  对应别名：p
 #  由 fz-tools/fzgit.sh 自动加载
 # ════════════════════════════════════════════════════════════
-
-# ══════════════════════════════════════════
-#  🤖  AI 生成 commit message
-# ══════════════════════════════════════════
-_ai_commit_msg() {
-    [ -z "$FZ_AI_KEY" ] && return 1
-    ! command -v curl &>/dev/null && return 1
-
-    local diff_content
-    diff_content=$(git diff --staged --stat 2>/dev/null)
-    local diff_detail
-    diff_detail=$(git diff --staged 2>/dev/null | head -200)
-
-    [ -z "$diff_content" ] && return 1
-
-    echo -e "\033[90m🤖 AI 分析中...\033[0m" >&2
-
-    local prompt="根据以下 git diff 内容，生成一条简洁的中文 commit message。
-格式：<类型>: <简短描述>（不超过50字）
-类型参考：feat/fix/refactor/style/docs/chore
-只输出 commit message 本身，不要任何解释、引号或多余内容。
-
-文件变更统计：
-${diff_content}
-
-代码差异（部分）：
-${diff_detail}"
-
-    local escaped_prompt
-    escaped_prompt=$(_json_escape "$prompt")
-
-    local response
-    response=$(curl -s --max-time 15 "https://api.anthropic.com/v1/messages" \
-        -H "x-api-key: ${FZ_AI_KEY}" \
-        -H "anthropic-version: 2023-06-01" \
-        -H "content-type: application/json" \
-        -d "{
-            \"model\": \"claude-haiku-4-5-20251001\",
-            \"max_tokens\": 100,
-            \"messages\": [{\"role\": \"user\", \"content\": ${escaped_prompt}}]
-        }" 2>/dev/null)
-
-    local msg=""
-    if command -v python3 &>/dev/null; then
-        msg=$(echo "$response" | python3 -c "
-import json,sys
-data=json.load(sys.stdin)
-print(data['content'][0]['text'].strip())
-" 2>/dev/null)
-    elif command -v jq &>/dev/null; then
-        msg=$(echo "$response" | jq -r '.content[0].text' 2>/dev/null)
-    else
-        msg=$(echo "$response" | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//')
-    fi
-
-    if [ -n "$msg" ] && [ "$msg" != "null" ]; then
-        echo "$msg"
-        return 0
-    fi
-    return 1
-}
 
 # ══════════════════════════════════════════
 #  🧩  p 参数解析（v5.100 修复 p "备注" 失效）
@@ -293,8 +225,9 @@ _p_push() {
     local msg=""
     if [ -n "${_fz_msg_arg:-}" ]; then
         msg="${_fz_msg_arg}"
-    elif [ -n "$FZ_AI_KEY" ] && command -v curl &>/dev/null; then
-        msg=$(_ai_commit_msg)
+    elif _fz_ai_ready; then
+        # AI 备注是可选项：只在配置完整时才发请求（见 ai.sh 的数据流向说明）
+        msg=$(_fz_ai_commit_msg)
         if [ -n "$msg" ]; then
             echo -e "\033[90m💡 AI建议: \033[0m\033[1m${msg}\033[0m"
             read -rp "使用此备注？(回车确认 / 输入自定义): " custom_msg

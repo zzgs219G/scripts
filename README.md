@@ -75,6 +75,7 @@ scripts/
         ├── fix.sh         # 冲突解决引导
         ├── tag.sh         # 版本标签管理
         ├── reasonix.sh    # 一键安装/升级 Reasonix CLI（Termux 编译安装）
+        ├── ai.sh          # 🆕 AI 备注（可选，OpenAI 兼容接口）
         └── burn.sh        # 炼化源码（输出到项目上一级目录 / 第一个书签）
 ```
 
@@ -177,12 +178,39 @@ v5.0 用「书签」取代了硬编码的 `FZ_BASE` 工作台。升级**零成�
 ## 依赖
 
 - **git** — 核心
-- **curl** — AI commit 请求
+- **curl** — 仅 AI 备注功能需要
 - **gh**（GitHub CLI）— login / repo / rls / 交互式克隆列表功能
-- **python3**（可选）— AI 响应解析更稳定
-- **Anthropic API Key**（可选）— `aikey` 配置后，`p` 推送自动生成 commit message
-  - Key 存放于 `~/.fz_ai_key`（权限 600），**不进入仓库、不会被推送**
-  - 删除该文件即可停用；`p` 在暂存区发现疑似凭据时会中止推送
+- **python3** 或 **jq**（可选）— AI 响应解析更稳定
+
+### AI 生成 commit 备注（可选，默认关闭）
+
+**不配置就完全不会联网、不会产生费用。** `p` 默认问你要备注，
+回车使用 `⚡ update: 日期时间`。
+
+配置后 `p` 会自动生成备注，配置存放在 `~/.fz_ai.conf`（权限 600，
+不在仓库内）：
+
+```bash
+aikey      # 交互式配置：Base URL / 模型名 / Key
+aikeyoff   # 关闭并删除配置
+```
+
+支持**任何 OpenAI 兼容端点**（`/v1/chat/completions`），内置提示包括：
+
+| 服务 | Base URL | 费用 |
+|---|---|---|
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | 免费（约 40 请求/分），需 build.nvidia.com 注册 |
+| DeepSeek | `https://api.deepseek.com/v1` | 按量付费，单价很低 |
+| Ollama（本机） | `http://localhost:11434/v1` | 完全免费、数据不外发 |
+
+> ⚠️ **数据流向**：启用后会把 `git diff` 的统计与**前 200 行差异**
+> 发送到你配置的服务。NVIDIA 免费层明确声明会记录输入输出用于
+> 改进模型；Anthropic/DeepSeek 的付费接口默认不用于训练。
+> 介意的话用 Ollama 本地跑，或干脆不配置。
+
+> 早期版本只支持 Anthropic 的私有协议，现已改为通用 OpenAI 兼容接口。
+> 若你配过旧的 `~/.fz_ai_key`，它不会被自动沿用（协议不同），
+> 执行一次 `aikey` 重新配置即可；`aikeyoff` 会一并清理旧文件。
 
 ## 指令总览（按模块）
 
@@ -193,7 +221,8 @@ v5.0 用「书签」取代了硬编码的 `FZ_BASE` 工作台。升级**零成�
 - `repo` 创建远程仓库
 - `remote` 管理远程地址（增删改查）
 - `trust` 信任当前目录（safe.directory）
-- `aikey` 配置 AI commit Key（Anthropic）
+- `aikey` 配置 AI 备注（任何 OpenAI 兼容端点，可选）
+- `aikeyoff` 关闭 AI 备注并删除配置
 
 **书签（bookmark.sh）🆕**
 - `bookmark` 打开书签管理菜单（增删改查）

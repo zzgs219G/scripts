@@ -413,42 +413,11 @@ _remote_mgr() {
 }
 
 # ══════════════════════════════════════════
-#  🤖  AI 配置向导（aikey）
-#  ⚠️ Key 存在 ${HOME}/.fz_ai_key（权限 600），绝不写入仓库文件。
-#     fz-tools/fzgit.sh 被 git 追踪，早先版本把 Key sed 进该文件，
-#     而 `p` 会执行 `git add .` —— 配置过 aikey 后一次推送就把 Key
-#     推到公开仓库。现改为独立文件，与版本控制彻底隔离。
+#  🤖  AI 配置（转到 ai.sh）
+#  保留此函数名以兼容 `setup` 等旧调用点。
 # ══════════════════════════════════════════
 _ai_setup() {
-    echo -e "\n\033[1;35m🤖 AI commit 配置\033[0m\n"
-    echo -e "获取 API Key: \033[36mhttps://console.anthropic.com/\033[0m\n"
-
-    if [ -n "$FZ_AI_KEY" ]; then
-        echo -e "\033[32m✅ 已配置 API Key\033[0m（${FZ_AI_KEY:0:8}...）"
-        echo -e "\033[90m   存储位置: ${FZ_AI_KEY_FILE}\033[0m"
-        read -rp "重新配置？(y/n): " reconf
-        [[ "$reconf" != "y" && "$reconf" != "Y" ]] && return 0
-    fi
-
-    read -rp "输入你的 Anthropic API Key (sk-ant-...): " input_key
-    if [ -z "$input_key" ]; then
-        echo -e "\033[90m已取消\033[0m"
-        return 0
-    fi
-
-    local key_file="${FZ_AI_KEY_FILE:-${HOME}/.fz_ai_key}"
-    # 先以 600 权限创建，再写入；避免 Key 有一瞬间对其他用户可读
-    if ! ( umask 077; printf '%s\n' "$input_key" > "$key_file" ); then
-        echo -e "\033[31m❌ 写入 ${key_file} 失败\033[0m"
-        return 1
-    fi
-    chmod 600 "$key_file" 2>/dev/null
-    export FZ_AI_KEY="$input_key"
-    export FZ_AI_KEY_FILE="$key_file"
-
-    echo -e "\033[32m✅ 已保存到 ${key_file}（权限 600）\033[0m"
-    echo -e "\033[90m   该文件不在仓库内，不会被 git 提交\033[0m"
-    echo -e "\033[32m   下次 'p' 推送时将自动生成 commit message\033[0m\n"
+    _fz_ai_setup
 }
 
 # ══════════════════════════════════════════

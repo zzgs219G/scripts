@@ -19,7 +19,7 @@
 # ════════════════════════════════════════════════════════════
 
 # ── 版本号（v5.100 修复：p 以「目标远程」而非 @{u} 判断是否推送）──
-FZ_VERSION="5.110"
+FZ_VERSION="5.111"
 
 # ── FZ_BASE：仅作 burn.sh 的输出兜底（v5.0 起不参与导航）──
 #     不探测、不创建目录：source 本文件时绝不写磁盘。
@@ -34,15 +34,10 @@ else
 fi
 export FZ_BASE="${FZ_BASE:-${HOME}/repos}"
 
-# ── AI commit message 的 Key ──
-#     存在 ${HOME}/.fz_ai_key（权限 600），绝不写进本文件——
-#     本文件被 git 追踪，写进来会被 `p` 的 git add . 推到公开仓库。
+# ── AI 备注（可选，默认关闭，配置存 ~/.fz_ai.conf）──
+#    不做 FZ_AI_KEY 的启动期读取：配置只在 aikey / p 调用时按需加载，
+#    避免每次开终端都读文件，也让「未配置 = 零网络」更容易验证。
 export FZ_AI_KEY=""
-if [ -r "${HOME}/.fz_ai_key" ]; then
-    FZ_AI_KEY="$(head -n 1 "${HOME}/.fz_ai_key" 2>/dev/null | tr -d '\r\n')"
-    export FZ_AI_KEY
-fi
-export FZ_AI_KEY_FILE="${HOME}/.fz_ai_key"
 
 # ── 路径自适应：无论从何处 source，都能定位自身与模块目录 ──
 _FZ_SRC="${BASH_SOURCE[0]}"
@@ -57,7 +52,7 @@ else
     echo -e "\033[31m❌ [焚诀] 缺少文件: ${_FZ_DIR}/core.sh\033[0m" >&2
 fi
 
-for _fz_mod in env bookmark nav branch push merge view stash fix tag burn clone pullall reasonix; do
+for _fz_mod in env bookmark nav branch push merge view stash fix tag burn clone pullall reasonix ai; do
     _fz_mod_file="${_FZ_DIR}/modules/${_fz_mod}.sh"
     if [ -f "${_fz_mod_file}" ]; then
         # shellcheck source=/dev/null  # 路径运行时拼接，静态分析无法跟踪
@@ -79,6 +74,7 @@ alias repo='_create_repo'
 alias remote='_remote_mgr'
 alias trust='_trust_dir'
 alias aikey='_ai_setup'
+alias aikeyoff='_fz_ai_off'
 alias bookmark='_bookmark_mgr'
 alias c='_c_jump'
 alias lsp='_ls_projects'
