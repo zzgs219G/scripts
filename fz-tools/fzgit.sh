@@ -19,7 +19,7 @@
 # ════════════════════════════════════════════════════════════
 
 # ── 版本号（发版用 bash version.sh bump，p 不再自动改写）──
-FZ_VERSION="5.115"
+FZ_VERSION="5.116"
 
 # ── FZ_BASE：仅作 burn.sh 的输出兜底 ──
 #     不探测、不创建目录：source 本文件时绝不写磁盘。
@@ -73,6 +73,7 @@ alias setup='_setup_env'
 #    主名改为 ghlogin；保留 login 作为兼容别名，老用户不会突然失效。
 alias ghlogin='_github_login'
 alias login='_github_login'
+alias token='_fz_token'
 alias repo='_create_repo'
 alias remote='_remote_mgr'
 alias trust='_trust_dir'

@@ -6,6 +6,62 @@
 
 ---
 
+## v5.116 — 新增 token 指令：一键更换 HTTPS 令牌
+
+### 变更
+
+- 新增 `token` 指令（`modules/env.sh`），用于更换各平台 HTTPS 令牌：
+  `token`（列出状态后选平台）、`token cnb`、`token github`、`token gitlab`、
+  `token gitee`、`token coding`，也支持直接给域名 `token cnb.cool`。
+- 界面会显示当前账号与**脱敏**令牌（如 `NEWT****（共 18 位）`），
+  令牌输入不回显，输出不打印完整令牌。
+- 走 git credential 协议（先 `reject` 再 `approve`），对 `store` / `cache` /
+  `keychain` 各类助手都成立，不需要知道令牌缓存在哪个文件。
+
+### 修复
+
+- **写入后回读校验**：某些平台配置了 URL 专属 helper（如 `gh auth git-credential`）
+  会接管该 host 的凭据，此时本指令写入的值读不回来。现在这种情况会明确报失败
+  并提示改用 `ghlogin`，不再假报成功。
+- **回读失败时回滚旧令牌**：`reject` 到 `approve` 之间若写入失败，旧令牌已被删除，
+  用户会卡在「旧的没了、新的没成」。现在失败时自动写回原令牌。
+- **不能靠 `approve` 退出码判断成败**：实测即使 helper 彻底失败（程序不存在 /
+  目标文件不可写），`git credential approve` 仍返回 0。唯一可靠判据是回读。
+- **先删旧再写新**：`store` 助手是追加写，不先 `reject` 会在 `~/.git-credentials`
+  里留下新旧两条记录。
+
+### 重构
+
+- 平台表合并为**单一真相源**：`_fz_platforms` 一张表同时喂 remote 拼 URL、
+  token 换令牌、HTTPS 凭据提示。原先 `remote` 与 `token` 各有一张表，
+  新增平台必漏一处。
+
+### 修复（假报成功）
+
+- `repo` 的初始提交不再 `git commit ... 2>/dev/null || true`。缺身份时
+  `git commit` 返回 128，被吞成 0 后仍继续 `git push` 并打印「已推送」，
+  而代码根本没进任何提交。现在提交/推送失败都会明确报错并给出下一步。
+
+### 修复（bash 3.2 兼容）
+
+- `c <关键字>` 用到 `${var,,}`（bash 4 语法），macOS 自带的 `/bin/bash` 3.2
+  会直接语法错误。改为内建 `_fz_lower`，零 fork，中文/数字原样保留。
+
+### 测试
+
+- 新增 T19（18 项）：令牌替换生效、旧值清除、不误伤其他平台、空输入不改动、
+  未知平台报错、输出不泄露完整令牌、域名直给、助手覆盖时报失败、
+  平台名归一（CODING 主机为 `e.coding.net`）、回滚后旧令牌仍在、
+  平台表不重复。
+- 新增 T20（3 项）：源码不得出现被吞掉的 `git commit`，
+  并验证「无身份时 commit 确实失败」这一前提成立。
+  ⚠️ 用例用 `env -u GIT_AUTHOR_*` 隔离，否则脚本顶部的 export 会盖过
+  git config，让用例假绿。
+- 新增 T21（4 项）：产品代码不得出现 bash 4 大小写替换语法，
+  并校验 `_fz_lower` 行为。
+
+---
+
 ## v5.111 — AI 备注改为协议中立
 
 ### 变更

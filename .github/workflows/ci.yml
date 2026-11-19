@@ -112,6 +112,9 @@ jobs:
           grep -q 'T16a' fz-tools/smoke-test.sh || { echo "::error::T16 文档一致性用例被移除"; exit 1; }
           grep -q 'T17a' fz-tools/smoke-test.sh || { echo "::error::T17 入口行为用例被移除"; exit 1; }
           grep -q 'T18g' fz-tools/smoke-test.sh || { echo "::error::T18 性能用例被移除"; exit 1; }
+          grep -q 'T19a' fz-tools/smoke-test.sh || { echo "::error::T19 令牌更换用例被移除"; exit 1; }
+          grep -q 'T20a' fz-tools/smoke-test.sh || { echo "::error::T20 假报成功用例被移除"; exit 1; }
+          grep -q 'T21a' fz-tools/smoke-test.sh || { echo "::error::T21 bash3.2 兼容用例被移除"; exit 1; }
 
   no-secrets:
     name: 仓库内不得含凭据

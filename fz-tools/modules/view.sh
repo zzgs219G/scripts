@@ -60,6 +60,7 @@ _fz_help() {
   \033[36mup\033[0m          检查更新 / 升级《焚诀》
   \033[36msetup\033[0m       环境配置向导
   \033[36mghlogin\033[0m    登录 GitHub
+  \033[36mtoken\033[0m       更换 HTTPS 令牌（token cnb）
 
 \033[90m  更多指令（低频率）：\033[0m\033[36mh all\033[0m\n"
         return 0
@@ -86,10 +87,12 @@ _fz_help() {
   \033[36minit\033[0m       空文件夹一键初始化（自动引导绑远程/首次推送）
   \033[36msetup\033[0m      环境配置向导（git 用户名/邮箱/凭据检测）
   \033[36mghlogin\033[0m  登录 GitHub（浏览器/Token）
+  \033[36mtoken\033[0m    更换各平台 HTTPS 令牌（token cnb / token github）
 
 \033[1;33m── 🔧 初始化 ────────────────────────────\033[0m
   \033[36msetup\033[0m    检查环境 + 配置 Git 全局信息
   \033[36mghlogin\033[0m  登录 GitHub（浏览器/Token）
+  \033[36mtoken\033[0m    更换 HTTPS 令牌（token cnb / token github）
   \033[36mrepo\033[0m     创建远程仓库
   \033[36mremote\033[0m   管理远程地址（增删改查）
   \033[36mtrust\033[0m    信任当前目录（safe.directory）

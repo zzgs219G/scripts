@@ -5,7 +5,8 @@
 #        AI Key 配置 / 自更新（git pull 版）
 #  包含函数：_setup_env  _github_login  _create_repo  _remote_mgr
 #            _trust_dir  _ai_setup  _update_script  _fz_ver_gt
-#  对应别名：setup  ghlogin(login)  repo  remote  trust  aikey  up
+#            _fz_token  _fz_token_help
+#  对应别名：setup  ghlogin(login)  repo  remote  trust  aikey  up  token
 #  说明：_create_repo / _remote_mgr 属 GitHub 环境相关，计划书
 #        未单列，按就近原则归入本模块。
 #  ⚠️ _github_login 有非交互终端检测，避免管道
@@ -120,6 +121,212 @@ _gh_ensure_credential() {
 }
 
 # ══════════════════════════════════════════
+#  🔐  HTTPS 令牌管理（token）
+#  为什么需要这个指令：credential.helper=store 会把令牌明文缓存进
+#  ~/.git-credentials，此后 git 不再向用户索要凭据。令牌轮换后 git 只会
+#  反复报 401，而用户并不知道凭据被缓存在哪个文件、以什么格式存的。
+#  这里统一走 git credential 协议（先 reject 再 approve），对 store /
+#  cache / keychain / gh 各类 helper 都成立 —— 不需要知道令牌存在哪。
+#  平台与令牌入口来自 _fz_platforms（单一真相源），此处不另建表。
+# ══════════════════════════════════════════
+
+# 把用户输入归一成 host；未知返回空
+# 接受：英文简称（cnb）、主机名（cnb.cool）、表中显示名（腾讯云 CNB）
+# ⚠️ 不能只靠「主机名首段」推简称：CODING 的主机是 e.coding.net，
+#    首段是 "e"，用户会敲 coding。这类平台必须有显式别名。
+_fz_token_host_of() {
+    local want="${1:-}" name _url host _token
+    # 显式别名优先（简称与主机首段不一致的平台放这里）
+    case "$want" in
+        coding|coding.net) want="e.coding.net" ;;
+        gl)                want="gitlab.com" ;;
+        gh)                want="github.com" ;;
+    esac
+    # 含点的一律当主机名直通（x.com 这类自定义平台无须入表）
+    case "$want" in
+        *.*) echo "$want"; return 0 ;;
+    esac
+    while IFS='|' read -r name _url host _token; do
+        [ -z "$host" ] && continue
+        [ "$want" = "${host%%.*}" ] && { echo "$host"; return 0; }
+        [ "$want" = "$name" ] && { echo "$host"; return 0; }
+    done < <(_fz_platforms)
+    return 0
+}
+
+# 读当前凭据：输出 "username<TAB>password"，未存储则输出空
+# 必须 GIT_TERMINAL_PROMPT=0：否则 git 会在终端里主动索要凭据，
+# 而本函数只用于「看一眼当前状态」，绝不能打断用户。
+_fz_token_current() {
+    local host="$1" out u="" p=""
+    out=$(printf 'protocol=https\nhost=%s\n\n' "$host" \
+          | GIT_TERMINAL_PROMPT=0 git credential fill 2>/dev/null) || return 0
+    u=$(printf '%s\n' "$out" | sed -n 's/^username=//p' | head -1)
+    p=$(printf '%s\n' "$out" | sed -n 's/^password=//p' | head -1)
+    [ -n "$p" ] && printf '%s\t%s\n' "${u:-?}" "$p"
+    return 0
+}
+
+# 令牌脱敏：只暴露长度与前 4 位，输出到 stdout
+_fz_token_mask() {
+    local t="${1:-}" n
+    n=${#t}
+    if [ "$n" -le 8 ]; then
+        echo "****（${n} 位，偏短，可能不是有效令牌）"
+    else
+        echo "${t:0:4}****（共 ${n} 位）"
+    fi
+}
+
+_fz_token_help() {
+    echo -e "\033[1;36m🔐 token — 更换各平台 HTTPS 令牌\033[0m
+
+  \033[36mtoken\033[0m             列出各平台令牌状态，选一个更换
+  \033[36mtoken cnb\033[0m         直接更换 CNB 令牌
+  \033[36mtoken github\033[0m      更换 GitHub 令牌（走 git 凭据，非 gh）
+  \033[36mtoken gitlab\033[0m      / gitee / coding
+  \033[36mtoken x.com\033[0m       任意主机（直接给域名）
+
+\033[90m  管的是 git 推送用的 HTTPS 令牌，不是 gh CLI 的登录态；
+  GitHub 若装了 gh，凭据由 gh 接管，请改用 ghlogin。\033[0m"
+}
+
+# ══════════════════════════════════════════
+#  🔐  令牌更换主入口（token）
+# ══════════════════════════════════════════
+_fz_token() {
+    local arg="${1:-}" user_arg="${2:-}"
+    case "$arg" in
+        -h|--help|help) _fz_token_help; return 0 ;;
+    esac
+
+    local host="" pick_name="" pick_url=""
+    if [ -n "$arg" ]; then
+        host=$(_fz_token_host_of "$arg")
+        if [ -z "$host" ]; then
+            echo -e "\033[31m❌ 不认识的平台: ${arg}\033[0m（可给域名，如 token cnb.cool）" >&2
+            return 1
+        fi
+    fi
+
+    echo -e "\n\033[1;35m🔐 HTTPS 令牌管理\033[0m\n"
+
+    # ── 无参数：列状态 + 选择平台 ──
+    if [ -z "$host" ]; then
+        local -a names=() hosts=() urls=() labels=()
+        local name h _url token cur u p label
+        while IFS='|' read -r name _url h token; do
+            [ -z "$h" ] && continue          # 跳过「自定义 URL」项
+            names+=("$name"); hosts+=("$h"); urls+=("$token")
+            cur=$(_fz_token_current "$h")
+            if [ -n "$cur" ]; then
+                u="${cur%%$'\t'*}"; p="${cur#*$'\t'}"
+                label="${name}（${u} · $(_fz_token_mask "$p")）"
+            else
+                label="${name}（未存储令牌）"
+            fi
+            labels+=("$label")
+        done < <(_fz_platforms)
+
+        # 非交互环境下 picker 退化为数字输入，空行 = 第一项
+        _fz_picker "更换哪个平台的令牌: " "${labels[@]}" || {
+            echo -e "\033[90m已取消\033[0m"; return 0
+        }
+        local idx="$FZ_PICK_RET"
+        [[ "$idx" =~ ^[0-9]+$ ]] || { echo -e "\033[90m已取消\033[0m"; return 0; }
+        local i=$((idx - 1))
+        host="${hosts[$i]}"; pick_name="${names[$i]}"; pick_url="${urls[$i]}"
+    fi
+
+    # ── 当前状态 ──
+    local cur u="" old="" masked="无"
+    cur=$(_fz_token_current "$host")
+    if [ -n "$cur" ]; then
+        u="${cur%%$'\t'*}"; old="${cur#*$'\t'}"
+        masked=$(_fz_token_mask "$old")
+    fi
+    echo -e "  平台     : \033[36m${pick_name:-$host}\033[0m（${host}）"
+    echo -e "  账号     : \033[33m${u:-（未知）}\033[0m"
+    echo -e "  当前令牌 : \033[33m${masked}\033[0m"
+    [ -n "$pick_url" ] && echo -e "  新令牌   : \033[90m${pick_url}\033[0m"
+
+    # ── 平台专属凭据助手会覆盖 store，提前说清楚 ──
+    local host_helper
+    host_helper=$(git config --get-all "credential.https://${host}.helper" 2>/dev/null | tail -1)
+    if [ -n "$host_helper" ]; then
+        echo -e "\033[33m⚠️  ${host} 的凭据由专属助手接管：${host_helper}\033[0m"
+        if [ "$host" = "github.com" ]; then
+            echo -e "\033[33m    更换 GitHub 令牌请用 \033[36mghlogin\033[0m\033[33m（本指令写入的会被它覆盖）\033[0m"
+        fi
+    fi
+
+    # ── 输入新令牌：TTY 用静默读取，管道则从 stdin 取一行 ──
+    local tok=""
+    if [ -t 0 ]; then
+        read -rsp "粘贴新令牌（输入不回显，回车确认）: " tok
+        echo ""
+    else
+        read -r tok || tok=""
+    fi
+    tok="${tok%$'\r'}"
+    # 去掉误粘贴的空白与 URL 包装（用户常整行复制）
+    tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+    if [ -z "$tok" ]; then
+        echo -e "\033[90m未输入，已取消（令牌未改动）\033[0m"
+        return 1
+    fi
+
+    # 用户名：优先命令行第二参数，其次沿用旧值，都没有才问
+    if [ -n "$user_arg" ]; then
+        u="$user_arg"
+    elif [ -z "$u" ] || [ "$u" = "?" ]; then
+        if [ -t 0 ]; then
+            read -rp "该平台用户名: " u
+        fi
+        if [ -z "$u" ]; then
+            echo -e "\033[31m❌ 缺少用户名，无法保存令牌\033[0m" >&2
+            return 1
+        fi
+    fi
+
+    # ── 先删旧再写新：store 助手是追加写，不删会留下两条 ──
+    #  ⚠️ 不能靠 approve 的退出码判断成败：实测即使 helper 彻底失败
+    #     （程序不存在 / 目标文件不可写），git credential approve 仍返回 0。
+    #     唯一可靠的判据是写完回读。回滚也必须在回读失败时做 ——
+    #     此时旧令牌已被 reject 删掉，不恢复用户就卡在「旧的没了、新的没成」。
+    local had_old=0
+    [ -n "$old" ] && had_old=1
+    printf 'protocol=https\nhost=%s\n\n' "$host" \
+        | GIT_TERMINAL_PROMPT=0 git credential reject 2>/dev/null
+
+    printf 'protocol=https\nhost=%s\nusername=%s\npassword=%s\n\n' "$host" "$u" "$tok" \
+        | GIT_TERMINAL_PROMPT=0 git credential approve >/dev/null 2>&1
+
+    # ── 回读校验：确认这个 host 现在取到的就是新令牌 ──
+    local after a_user a_pass
+    after=$(_fz_token_current "$host")
+    a_user="${after%%$'\t'*}"; a_pass="${after#*$'\t'}"
+    if [ -z "$after" ] || [ "$a_pass" != "$tok" ]; then
+        if [ "$had_old" -eq 1 ]; then
+            printf 'protocol=https\nhost=%s\nusername=%s\npassword=%s\n\n' "$host" "$u" "$old" \
+                | GIT_TERMINAL_PROMPT=0 git credential approve >/dev/null 2>&1
+            echo -e "\033[31m❌ 令牌未能写入，已恢复原令牌\033[0m" >&2
+        else
+            echo -e "\033[31m❌ 令牌未能写入（该平台原本没有存储凭据）\033[0m" >&2
+        fi
+        echo -e "\033[90m   当前生效助手: $(git config --get credential.helper 2>/dev/null || echo 无)\033[0m" >&2
+        echo -e "\033[90m💡 若 $host 由专属助手接管，请用该平台自己的登录方式\033[0m" >&2
+        return 1
+    fi
+
+    echo -e "\n\033[32m✅ 已更换 ${host} 令牌\033[0m"
+    echo -e "   账号 \033[33m${a_user}\033[0m · 令牌 $(_fz_token_mask "$a_pass")"
+    echo -e "\033[90m   旧令牌立即失效；若平台后台仍保留旧令牌记录，可去后台吊销\033[0m"
+    [ "$host" = "cnb.cool" ] && echo -e "\033[90m   验证：在 CNB 项目里执行 \033[36mp cnb\033[0m\033[0m"
+    return 0
+}
+
+# ══════════════════════════════════════════
 #  🔑  GitHub 登录（ghlogin / login 兼容）
 # ══════════════════════════════════════════
 _github_login() {
@@ -225,39 +432,57 @@ _create_repo() {
         git remote add origin "$remote_url"
         _git_auto_ignore
         git add .
-        git commit -m "🎉 init: 项目初始化" 2>/dev/null || true
+        # 不能 `2>/dev/null || true`：缺身份时 git commit 返回 128，
+        # 吞掉后仍会继续 push 并打印「已推送」，而代码根本没进任何提交。
+        local commit_out
+        if ! commit_out=$(git commit -m "🎉 init: 项目初始化" 2>&1); then
+            if echo "$commit_out" | grep -qiE "nothing to commit|nothing added"; then
+                :   # 真的没有可提交内容，继续推送
+            else
+                echo -e "\033[31m❌ 初始提交失败：\033[0m" >&2
+                echo "$commit_out" | head -5 | sed 's/^/   /' >&2
+                echo -e "\033[90m💡 若是身份未配置，执行 \033[36msetup\033[0m\033[90m 设置 user.name / user.email\033[0m" >&2
+                return 1
+            fi
+        fi
         git branch -M main
-        git push -u origin main
+        if ! git push -u origin main; then
+            echo -e "\033[31m❌ 推送到 ${remote_url} 失败\033[0m" >&2
+            echo -e "\033[90m💡 检查网络/凭据；CNB 等平台可先 \033[36mtoken <平台>\033[0m\033[90m 配置令牌\033[0m" >&2
+            return 1
+        fi
         echo -e "\033[32m🚀 已推送至 ${remote_url}\033[0m\n"
     fi
 }
 
 # ══════════════════════════════════════════
-#  🌐  平台 URL 模板（多平台推送支持）
-#  各平台远程地址拼装规则；{user}=用户名/组织 {repo}=仓库名
-#  新增平台只需在此表和 _fz_platform_hint 各加一行
+#  🌐  平台表（单一真相源）
+#  一张表同时喂三处：remote 绑定拼 URL、token 换令牌、HTTPS 凭据提示。
+#  拆成多张表的后果是新增平台要改好几处，总有一处会被忘记。
+#  列：名称|URL模板|主机|令牌生成入口
+#  {user}=用户名/组织 {repo}=仓库名；主机为空表示非固定模板（自定义 URL）
 # ══════════════════════════════════════════
-# 平台模板表：名称|URL模板|是否需要HTTPS令牌(1/0)
 _fz_platforms() {
     cat <<'FZ_PLATFORM_EOF'
-GitHub|https://github.com/{user}/{repo}.git|1
-GitLab|https://gitlab.com/{user}/{repo}.git|1
-Gitee（码云）|https://gitee.com/{user}/{repo}.git|1
-腾讯云 CNB|https://cnb.cool/{user}/{repo}.git|1
-CODING（腾讯）|https://e.coding.net/{user}/{user}/{repo}.git|1
-自定义（直接输入完整 URL）||0
+GitHub|https://github.com/{user}/{repo}.git|github.com|https://github.com/settings/tokens
+GitLab|https://gitlab.com/{user}/{repo}.git|gitlab.com|GitLab → Settings → Access Tokens（勾选 write_repository）
+Gitee（码云）|https://gitee.com/{user}/{repo}.git|gitee.com|Gitee → 设置 → 私人令牌
+腾讯云 CNB|https://cnb.cool/{user}/{repo}.git|cnb.cool|CNB → 右上头像 → 个人设置 → 访问令牌
+CODING（腾讯）|https://e.coding.net/{user}/{user}/{repo}.git|e.coding.net|CODING → 个人设置 → 访问令牌
+自定义（直接输入完整 URL）|||
 FZ_PLATFORM_EOF
 }
 
-# 平台凭据提示（HTTPS 推送需令牌时给出对应帮助）
+# 平台凭据提示：从表中取令牌入口，不再另维护一份 case 分支
 _fz_platform_hint() {
-    case "${1:-}" in
-        GitHub)     echo -e "  💡 HTTPS 推送需令牌: \033[36mhttps://github.com/settings/tokens\033[0m 或直接 \033[36mlogin\033[0m" ;;
-        GitLab)     echo -e "  💡 HTTPS 推送需令牌: \033[36mGitLab → Settings → Access Tokens\033[0m（勾选 write_repository）" ;;
-        Gitee*)     echo -e "  💡 HTTPS 推送需令牌: \033[36mGitee → 设置 → 私人令牌\033[0m" ;;
-        腾讯云*)    echo -e "  💡 HTTPS 推送需令牌: \033[36mCNB → 设置 → 访问令牌\033[0m" ;;
-        CODING*)    echo -e "  💡 HTTPS 推送需令牌: \033[36mCODING → 个人设置 → 访问令牌\033[0m" ;;
-    esac
+    local want="${1:-}" name _url host token
+    while IFS='|' read -r name _url host token; do
+        [ "$name" = "$want" ] || continue
+        [ -z "$token" ] && return 0
+        echo -e "  💡 HTTPS 推送需令牌: \033[36m${token}\033[0m"
+        return 0
+    done < <(_fz_platforms)
+    return 0
 }
 
 # 按 URL 猜平台名（info/remote 展示用）
@@ -284,7 +509,7 @@ _fz_platform_of() {
 _fz_build_url() {
     FZ_REMOTE_URL=""
     local -a p_names=() p_tmpls=()
-    while IFS='|' read -r name tmpl _; do
+    while IFS='|' read -r name tmpl _rest; do
         p_names+=("$name")
         p_tmpls+=("$tmpl")
     done < <(_fz_platforms)

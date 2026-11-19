@@ -190,6 +190,7 @@ aikeyoff   # 关闭并删除配置
 - `up` 检查更新（基于 git pull 更新整个仓库）
 - `setup` 检查环境 + 配置 Git 全局信息 + 创建书签
 - `ghlogin` 登录 GitHub（浏览器 / Token）；`login` 为兼容别名
+- `token` 更换各平台 HTTPS 令牌（`token cnb` / `token github` / `token x.com`）
 - `repo` 创建远程仓库
 - `remote` 管理远程地址（增删改查）
 - `trust` 信任当前目录（safe.directory）

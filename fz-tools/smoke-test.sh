@@ -7,7 +7,9 @@
 #    · 本地 bare 仓库模拟远端，零网络依赖
 #    · 交互流程全部自动应答（管道喂入）
 #    · 结束自动清理全部临时文件（trap EXIT）
-#  覆盖 T1-T12：核心功能回归 + 安全回归（凭据隔离 / 无副作用加载）
+#  覆盖 T1-T21：核心功能回归 + 安全回归（凭据隔离 / 无副作用加载）
+#         + 代码卫生 / 文档一致性 / 入口行为 / 渲染性能 / 令牌更换
+#         + 假报成功 / bash 3.2 兼容性
 # ════════════════════════════════════════════════════════════
 
 set -u
@@ -726,6 +728,195 @@ if grep -q '_fz_picker.*sed\|_fz_char_width.*wc' "${FZ_SRC_DIR}/modules/nav.sh" 
 else
     PASS=$((PASS + 1)); echo "  ✅ T18h 渲染路径无外部命令"
 fi
+
+# ══════════════════════════════════════════
+# T19 token 令牌更换
+#  背景：credential.helper=store 会缓存令牌，轮换后 git 只报 401，
+#  用户不知道凭据存在哪。这里锁死「换令牌真的换掉了」+ 不误伤别的平台。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T19 token 令牌更换 ══════════"
+
+_t19="$TEST_ROOT/t19"
+mkdir -p "$_t19"
+_t19_gc="$_t19/gitconfig"
+_t19_cred="$_t19/cred"
+: > "$_t19_gc"
+: > "$_t19_cred"
+# 沙箱内单独配置，避免污染全局 GIT_CONFIG_GLOBAL
+_t19_run() {
+    GIT_CONFIG_GLOBAL="$_t19_gc" HOME="$_t19" _fz_token "$@"
+}
+
+git config --file "$_t19_gc" credential.helper "store --file=$_t19_cred"
+printf 'https://cnb.olduser:OLDCNBTOKEN@cnb.cool\n' > "$_t19_cred"
+printf 'https://gh.olduser:OLDGHTOKEN@github.com\n' >> "$_t19_cred"
+chmod 600 "$_t19_cred"
+
+# T19a 换 CNB 令牌后，存储里就是新令牌
+printf 'BRAND_NEW_CNB_TOKEN_9\n' | _t19_run cnb >/dev/null 2>&1
+assert "T19a CNB 令牌已替换为新值" \
+    grep -q 'BRAND_NEW_CNB_TOKEN_9@cnb.cool' "$_t19_cred"
+
+# T19b 旧令牌不得残留（store 是追加写，不删会留两条）
+assert "T19b 旧 CNB 令牌已清除" \
+    bash -c '! grep -q OLDCNBTOKEN "$1"' _ "$_t19_cred"
+
+# T19c 不得误伤其他平台
+assert "T19c 其他平台令牌未被动" \
+    grep -q 'OLDGHTOKEN@github.com' "$_t19_cred"
+
+# T19d 账号沿用旧用户名（没有就报错，不能写半条）
+assert "T19d 沿用原有用户名" \
+    grep -q 'cnb.olduser:BRAND_NEW_CNB_TOKEN_9@' "$_t19_cred"
+
+# T19e 空输入 = 取消，文件不变
+_t19_before=$(cat "$_t19_cred")
+printf '\n' | _t19_run cnb >/dev/null 2>&1
+assert "T19e 空输入不改动凭据" \
+    test "$(cat "$_t19_cred")" = "$_t19_before"
+
+# T19f 未知平台必须报错退出
+assert "T19f 未知平台返回失败" \
+    bash -c '! printf "x\n" | _fz_token nosuchthing >/dev/null 2>&1'
+
+# T19g 输出里不得出现完整令牌（脱敏）
+_t19_out=$(printf 'SECRET_TOKEN_abcdef\n' | _t19_run cnb 2>&1)
+assert "T19g 输出不泄露完整令牌" \
+    bash -c '! grep -q SECRET_TOKEN_abcdef <<<"$1"' _ "$_t19_out"
+
+# T19h 主机名直给也能识别
+printf 'DIRECT_HOST_TOKEN_77\n' | _t19_run cnb.cool >/dev/null 2>&1
+assert "T19h 支持直接给域名" \
+    grep -q 'DIRECT_HOST_TOKEN_77@cnb.cool' "$_t19_cred"
+
+# T19i 凭据助手会覆盖时，不得假报成功（回读校验必须拦住）
+_t19_h="$_t19/override_helper.sh"
+printf '#!/bin/sh\nwhile IFS= read -r l; do [ -z "$l" ] && break; done\necho "username=x"\necho "password=OTHER_TOKEN"\n' > "$_t19_h"
+chmod +x "$_t19_h"
+git config --file "$_t19_gc" credential.https://github.com.helper "!$_t19_h"
+assert "T19i 助手覆盖时报失败而非假成功" \
+    bash -c '! printf "WANTED_TOKEN_1\n" | GIT_CONFIG_GLOBAL="$1" HOME="$2" _fz_token github >/dev/null 2>&1' \
+    _ "$_t19_gc" "$_t19"
+
+# T19j 平台名归一：CODING 主机是 e.coding.net，首段是 "e"，
+#      只按「主机首段」推简称会让 `token coding` 静默失效
+assert "T19j token coding 归一到 e.coding.net" \
+    test "$(_fz_token_host_of coding)" = "e.coding.net"
+assert "T19k token coding.net 归一到 e.coding.net" \
+    test "$(_fz_token_host_of coding.net)" = "e.coding.net"
+assert "T19l token cnb 归一到 cnb.cool" \
+    test "$(_fz_token_host_of cnb)" = "cnb.cool"
+assert "T19m 中文平台名可识别" \
+    test "$(_fz_token_host_of '腾讯云 CNB')" = "cnb.cool"
+assert "T19n 任意域名直通" \
+    test "$(_fz_token_host_of git.example.com)" = "git.example.com"
+assert "T19o 未知平台返回空" \
+    test -z "$(_fz_token_host_of 不存在的平台)"
+
+# T19p 平台表必须是单一真相源：remote 与 token 共用一张表
+assert "T19p 不再存在重复的平台表" \
+    bash -c '! grep -q "_fz_token_platforms" "$1"' _ "${FZ_SRC_DIR}/modules/env.sh"
+
+# T19q 写入失败时必须回滚旧令牌，不能把用户卡在「旧的没了、新的没成」
+#      注意：git credential approve 即使 helper 彻底失败也返回 0，
+#      所以判据只能是「回读」，不能看退出码。
+_t19_q="$_t19/q_home"
+mkdir -p "$_t19_q"
+printf 'https://cnb.quser:KEEP_OLD_TOKEN@cnb.cool\n' > "$_t19_q/.git-credentials"
+chmod 600 "$_t19_q/.git-credentials"
+_t19_qh="$_t19/q_helper.sh"
+# helper：get 返回旧值，store/erase 一律失败（模拟「读得到、写不进」）
+#   \$1 是 git 传给 helper 的操作名（get/store/erase）
+cat > "$_t19_qh" <<'QEOF'
+#!/bin/sh
+op="$1"
+while IFS= read -r l; do [ -z "$l" ] && break; done
+case "$op" in
+  get)   printf 'username=cnb.quser\npassword=KEEP_OLD_TOKEN\n' ;;
+  store|erase) exit 1 ;;
+esac
+QEOF
+chmod +x "$_t19_qh"
+_t19_qgc="$_t19_q/gitconfig"
+: > "$_t19_qgc"
+git config --file "$_t19_qgc" credential.helper "!$_t19_qh"
+assert "T19q 写不进时报失败而非假成功" \
+    bash -c '! printf "NEW_TOKEN_9\n" | GIT_CONFIG_GLOBAL="$1" HOME="$2" _fz_token cnb >/dev/null 2>&1' \
+    _ "$_t19_qgc" "$_t19_q"
+assert "T19r 回滚后回读到的仍是旧令牌" \
+    bash -c 'out=$(printf "protocol=https\nhost=cnb.cool\n\n" | GIT_TERMINAL_PROMPT=0 \
+             GIT_CONFIG_GLOBAL="$1" HOME="$2" git credential fill 2>/dev/null); 
+             grep -q "password=KEEP_OLD_TOKEN" <<<"$out"' \
+    _ "$_t19_qgc" "$_t19_q"
+
+# ══════════════════════════════════════════
+# T20 不得假报成功
+#  背景：repo 曾用 `git commit ... 2>/dev/null || true`，缺身份时
+#  commit 真实返回 128 却被吞成 0，程序继续 push 并打印「已推送」，
+#  而代码根本没进任何提交。AGENTS.md 明令禁止此类写法。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T20 不得假报成功 ══════════"
+
+# T20a 源码里不得再出现被吞掉的 git commit
+#  排除 smoke-test.sh 自身（本用例的说明文字里就有那串字符）
+if grep -rn 'git commit.*2>/dev/null' "${FZ_SRC_DIR}"/modules/*.sh "${FZ_SRC_DIR}"/*.sh 2>/dev/null \
+     | grep -v 'smoke-test'; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T20a git commit 被吞错")
+    echo "  ❌ T20a 仍有 git commit 吞掉报错"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T20a 没有 git commit 吞掉报错"
+fi
+
+# T20b 真实验证：无身份时 git commit 必须失败（锁住前提事实）
+#  ⚠️ 必须清空 GIT_AUTHOR_* / GIT_COMMITTER_*：本脚本顶部 export 了它们，
+#     会盖过 git config，导致「配置里没身份」也照样提交成功，用例假绿。
+_t20="$TEST_ROOT/t20"
+mkdir -p "$_t20"
+_t20_gc="$_t20/gitconfig"
+: > "$_t20_gc"
+git config --file "$_t20_gc" user.name t
+git config --file "$_t20_gc" user.email t@t
+( cd "$_t20" && git init -q && echo hi > a.txt && git add . ) >/dev/null 2>&1
+git config --file "$_t20_gc" --unset user.name
+git config --file "$_t20_gc" --unset user.email
+assert "T20b 无身份时 git commit 返回失败（前提成立）" \
+    bash -c '! env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+             GIT_CONFIG_GLOBAL="$1" HOME="$2" git -C "$2" commit -m x >/dev/null 2>&1' \
+    _ "$_t20_gc" "$_t20"
+
+# T20c 无身份时不得产生提交（证明吞错那段确实危险）
+assert "T20c 无身份时没有产生 HEAD" \
+    bash -c '! GIT_CONFIG_GLOBAL="$1" HOME="$2" git -C "$2" rev-parse --verify HEAD >/dev/null 2>&1' \
+    _ "$_t20_gc" "$_t20"
+
+# ══════════════════════════════════════════
+# T21 bash 3.2 兼容性
+#  macOS 自带 /bin/bash 是 3.2，${var,,} 这类 bash 4 语法会直接语法错误。
+#  `c <关键字>` 用到了它 —— 在 macOS 上就是「敲 c 报语法错」。
+# ══════════════════════════════════════════
+echo ""
+echo "══════════ T21 bash 3.2 兼容性 ══════════"
+
+# T21a 产品代码不得出现 ${var,,} / ${var^^}
+#  排除注释行：说明「为什么不能用它」的注释里必然包含这串字符
+if grep -rnE '\$\{[a-zA-Z_][a-zA-Z0-9_]*,,|\$\{[a-zA-Z_][a-zA-Z0-9_]*\^\^' \
+     "${FZ_SRC_DIR}"/modules/*.sh "${FZ_SRC_DIR}"/*.sh 2>/dev/null \
+     | grep -v 'smoke-test' | grep -vE ':[[:space:]]*#'; then
+    FAIL=$((FAIL + 1)); FAIL_NAMES+=("T21a 出现 bash4 大小写语法")
+    echo "  ❌ T21a 出现 bash 4 专属的大小写替换语法"
+else
+    PASS=$((PASS + 1)); echo "  ✅ T21a 无 bash 4 大小写替换语法"
+fi
+
+# T21b _fz_lower 行为正确（替代 ${var,,} 的实现）
+assert "T21b _fz_lower 转小写正确" \
+    test "$(_fz_lower 'AbC DeF')" = "abc def"
+assert "T21c _fz_lower 保留中文与数字" \
+    test "$(_fz_lower '克隆A1')" = "克隆a1"
+assert "T21d _fz_lower 空串安全" \
+    test -z "$(_fz_lower '')"
 
 # ══════════════════════════════════════════
 echo ""

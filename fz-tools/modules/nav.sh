@@ -294,6 +294,29 @@ _fz_picker_prompt() {
     printf '\r\033[1A\033[2K%b\r\033[1B' "$line"
 }
 
+# ══════════════════════════════════════════
+#  🔡  转小写（bash 3.2 兼容）
+#  ${var,,} 是 bash 4 语法，macOS 自带的 /bin/bash 3.2 直接报错，
+#  而 `c <关键字>` 是高频入口。这里逐字符查表，零 fork。
+# ══════════════════════════════════════════
+_fz_lower() {
+    local s="$1" out="" i c up lo
+    up="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    lo="abcdefghijklmnopqrstuvwxyz"
+    for ((i = 0; i < ${#s}; i++)); do
+        c="${s:i:1}"
+        case "$up" in
+            *"$c"*)
+                # 找到大写字母在表中的位置，取对应小写
+                local head="${up%%"$c"*}"
+                c="${lo:${#head}:1}"
+                ;;
+        esac
+        out+="$c"
+    done
+    printf '%s' "$out"
+}
+
 _c_jump() {
     _bm_init
     _bm_load
@@ -319,7 +342,7 @@ _c_jump() {
                 [ -d "$d" ] || continue
                 local dn
                 dn=$(basename "$d")
-                if [[ "${dn,,}" == *"${keyword,,}"* ]]; then
+                if [[ "$(_fz_lower "$dn")" == *"$(_fz_lower "$keyword")"* ]]; then
                     cd "$d" || return 1
                     echo -e "\033[32m🚀 瞬移成功: \033[1m${dn}\033[0m \033[90m(${d})\033[0m"
                     _git_status_summary
